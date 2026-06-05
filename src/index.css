@@ -1,0 +1,80 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    sans-serif;
+  background: #14161a;
+  color: #e6e8ec;
+  font-size: 14px;
+}
+
+
+button {
+  font: inherit;
+  background: #2a2f3a;
+  color: #e6e8ec;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #353b48;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input,
+textarea {
+  font: inherit;
+  background: #1c2028;
+  color: #e6e8ec;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: #4a5568;
+}
+
+code {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+}
+
+/* 얇고 은은한 스크롤바. hover 때만 살짝 보임. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+*:hover > ::-webkit-scrollbar-thumb,
+:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
