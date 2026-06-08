@@ -74,7 +74,7 @@ export class Database {
   private db: BetterSqlite3.Database;
 
   constructor() {
-    const dbPath = path.join(app.getPath('userData'), 'api-monitor.db');
+    const dbPath = path.join(app.getPath('userData'), 'mac-api-monitor.db');
     this.db = new BetterSqlite3(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');

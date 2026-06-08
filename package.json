@@ -1,5 +1,5 @@
 {
-  "name": "api-monitor",
+  "name": "mac-api-monitor",
   "version": "0.1.0",
   "private": true,
   "description": "URL 목록을 주기적으로 fetch 해서 응답시간/상태 모니터링하는 맥북앱",
@@ -28,7 +28,7 @@
     "recharts": "^2.12.0"
   },
   "build": {
-    "appId": "com.local.api-monitor",
+    "appId": "com.local.mac-api-monitor",
     "productName": "API Monitor",
     "files": [
       "dist",
