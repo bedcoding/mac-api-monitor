@@ -1,45 +1,45 @@
 import { useEffect, useState } from 'react';
-import type { AlarmEvent, EndpointType } from '../shared/types';
+import type { ThresholdEvent, EndpointType } from '../shared/types';
 
 export function Events({
   refreshKey,
   filterType,
 }: {
   refreshKey: number;
-  filterType?: EndpointType;
+  filterType: EndpointType;
 }) {
-  const [events, setEvents] = useState<AlarmEvent[]>([]);
+  const [events, setEvents] = useState<ThresholdEvent[]>([]);
 
   useEffect(() => {
-    window.api.recentEvents(200).then(setEvents);
-  }, [refreshKey]);
+    window.api.recentThresholdExceeded(filterType, 200).then(setEvents);
+  }, [refreshKey, filterType]);
 
-  const shown = filterType ? events.filter(e => e.type === filterType) : events;
-
-  if (shown.length === 0) {
+  if (events.length === 0) {
     return (
       <section style={emptyStyle}>
-        <h2 style={{ fontSize: 18 }}>알람 이벤트가 없습니다</h2>
+        <h2 style={{ fontSize: 18 }}>임계값 초과 이벤트가 없습니다</h2>
         <p style={{ opacity: 0.7 }}>
-          임계값 초과로 알람이 발동하면 여기에 시간순으로 쌓입니다. (설정에서 알람을 켜야 발동)
+          응답시간이 임계값을 넘었거나 호출이 실패한 경우 시간순으로 쌓입니다.
         </p>
       </section>
     );
   }
 
   return (
-    <section style={{ display: 'grid', gap: 8 }}>
-      {shown.map(ev => (
+    <section style={{ display: 'grid', gap: 6 }}>
+      {events.map(ev => (
         <div
           key={ev.id}
           style={{
-            display: 'flex',
-            alignItems: 'flex-start',
+            display: 'grid',
+            gridTemplateColumns: '60px 1fr auto auto',
+            alignItems: 'center',
             gap: 12,
-            padding: 12,
+            padding: '8px 12px',
             background: '#1c2028',
             border: '1px solid #2a2f3a',
-            borderRadius: 8,
+            borderRadius: 6,
+            fontSize: 12,
           }}
         >
           <span
@@ -50,18 +50,39 @@ export function Events({
               background: ev.level === 'critical' ? '#7f1d1d' : '#78350f',
               color: ev.level === 'critical' ? '#fecaca' : '#fde68a',
               fontWeight: 600,
-              flexShrink: 0,
-              marginTop: 2,
+              textAlign: 'center',
             }}
           >
             {ev.level === 'critical' ? '심각' : '주의'}
           </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600 }}>{ev.title}</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>{ev.detail}</div>
-            <div style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
-              {ev.type} · {ev.group_name} · {formatTime(ev.ts)}
+
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>{ev.label}</div>
+            <code
+              style={{
+                opacity: 0.55,
+                fontSize: 11,
+                display: 'block',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {ev.method} {ev.url}
+            </code>
+          </div>
+
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 600 }}>
+              {ev.ok === 0 ? <span style={{ color: '#f87171' }}>실패</span> : `${ev.duration_ms}ms`}
             </div>
+            <div style={{ fontSize: 10, opacity: 0.5 }}>
+              {ev.status === 0 ? '-' : `HTTP ${ev.status}`}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 10, opacity: 0.5, textAlign: 'right', minWidth: 70 }}>
+            {timeAgo(ev.ts)}
           </div>
         </div>
       ))}
@@ -69,19 +90,12 @@ export function Events({
   );
 }
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  const now = Date.now();
-  const diff = now - ts;
-  const rel =
-    diff < 60_000
-      ? `${Math.floor(diff / 1000)}초 전`
-      : diff < 3600_000
-        ? `${Math.floor(diff / 60_000)}분 전`
-        : diff < 86400_000
-          ? `${Math.floor(diff / 3600_000)}시간 전`
-          : `${Math.floor(diff / 86400_000)}일 전`;
-  return `${d.toLocaleString('ko-KR')} (${rel})`;
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}초 전`;
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}분 전`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}시간 전`;
+  return `${Math.floor(diff / 86400_000)}일 전`;
 }
 
 const emptyStyle: React.CSSProperties = {

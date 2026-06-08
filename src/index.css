@@ -43,6 +43,18 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* primary action 버튼 — 입력창과 명확히 구분 */
+.btn-primary {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
 input,
 textarea {
   font: inherit;

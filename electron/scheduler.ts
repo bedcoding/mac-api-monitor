@@ -67,8 +67,12 @@ export class Scheduler {
   private schedulePrune() {
     this.pruneTimer = setTimeout(() => {
       try {
-        const deleted = this.db.pruneOldMeasurements(this.settings.retention_days);
-        if (deleted > 0) console.log(`[scheduler] pruned ${deleted} old measurements`);
+        const h = this.db.pruneOldByType('health', this.settings.health.retention_days);
+        const f = this.db.pruneOldByType('feature', this.settings.feature.retention_days);
+        const total = h + f;
+        if (total > 0) {
+          console.log(`[scheduler] pruned ${total} (health=${h}, feature=${f})`);
+        }
       } catch (e) {
         console.warn('[scheduler] prune failed:', e);
       }

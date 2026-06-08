@@ -33,6 +33,20 @@ export interface AlarmEvent {
   detail: string;
 }
 
+export interface ThresholdEvent {
+  id: number;
+  ts: number;
+  duration_ms: number;
+  status: number;
+  ok: number;
+  endpoint_id: number;
+  label: string;
+  url: string;
+  method: string;
+  group_name: string | null;
+  level: 'warning' | 'critical';
+}
+
 export interface NewAlarmEvent {
   ts: number;
   type: EndpointType;
@@ -62,12 +76,11 @@ export interface TypeSettings {
   slack_webhook_url: string;
   slack_bot_token: string;
   slack_channel: string;
+  // 데이터 보관 (type 별 독립)
+  retention_days: number;
 }
 
 export interface Settings {
-  // 공통 (type 무관)
-  retention_days: number;
-  // type 별
   health: TypeSettings;
   feature: TypeSettings;
 }
@@ -97,6 +110,7 @@ const DEFAULT_HEALTH: TypeSettings = {
   slack_webhook_url: '',
   slack_bot_token: '',
   slack_channel: '',
+  retention_days: 7,
 };
 
 const DEFAULT_FEATURE: TypeSettings = {
@@ -115,10 +129,10 @@ const DEFAULT_FEATURE: TypeSettings = {
   slack_webhook_url: '',
   slack_bot_token: '',
   slack_channel: '',
+  retention_days: 7,
 };
 
 const DEFAULT_SETTINGS: Settings = {
-  retention_days: 7,
   health: DEFAULT_HEALTH,
   feature: DEFAULT_FEATURE,
 };
@@ -268,10 +282,18 @@ export class Database {
       .all(endpointId, since) as Measurement[];
   }
 
-  pruneOldMeasurements(retentionDays: number): number {
+  pruneOldByType(type: EndpointType, retentionDays: number): number {
     const cutoff = Date.now() - retentionDays * 24 * 3600_000;
-    const r = this.db.prepare('DELETE FROM measurements WHERE ts < ?').run(cutoff);
-    this.db.prepare('DELETE FROM alarm_events WHERE ts < ?').run(cutoff);
+    const r = this.db
+      .prepare(
+        `DELETE FROM measurements
+         WHERE ts < ?
+           AND endpoint_id IN (SELECT id FROM endpoints WHERE type = ?)`,
+      )
+      .run(cutoff, type);
+    this.db
+      .prepare('DELETE FROM alarm_events WHERE ts < ? AND type = ?')
+      .run(cutoff, type);
     return Number(r.changes);
   }
 
@@ -287,6 +309,37 @@ export class Database {
     return this.db
       .prepare('SELECT * FROM alarm_events ORDER BY ts DESC LIMIT ?')
       .all(limit) as AlarmEvent[];
+  }
+
+  /**
+   * 임계값 초과 측정 이벤트 (알람 발동 여부와 무관).
+   * - ok=0 (실패) 이거나
+   * - duration_ms >= warning_ms (느림)
+   */
+  recentThresholdExceeded(
+    type: EndpointType,
+    warningMs: number,
+    criticalMs: number,
+    limit = 200,
+  ): ThresholdEvent[] {
+    return this.db
+      .prepare(
+        `SELECT
+           m.id, m.ts, m.duration_ms, m.status, m.ok,
+           e.id AS endpoint_id, e.label, e.url, e.method, e.group_name,
+           CASE
+             WHEN m.ok = 0 OR m.duration_ms >= ? THEN 'critical'
+             WHEN m.duration_ms >= ? THEN 'warning'
+             ELSE NULL
+           END AS level
+         FROM measurements m
+         JOIN endpoints e ON e.id = m.endpoint_id
+         WHERE e.type = ?
+           AND (m.ok = 0 OR m.duration_ms >= ?)
+         ORDER BY m.ts DESC
+         LIMIT ?`,
+      )
+      .all(criticalMs, warningMs, type, warningMs, limit) as ThresholdEvent[];
   }
 
   getSettings(): Settings {
@@ -309,6 +362,7 @@ export class Database {
       slack_webhook_url: map.slack_webhook_url,
       slack_bot_token: map.slack_bot_token,
       slack_channel: map.slack_channel,
+      retention_days: map.retention_days,
     };
 
     const readType = (prefix: string, def: TypeSettings): TypeSettings => {
@@ -345,11 +399,13 @@ export class Database {
         slack_bot_token:
           map[`${prefix}.slack_bot_token`] ?? legacy.slack_bot_token ?? def.slack_bot_token,
         slack_channel: map[`${prefix}.slack_channel`] ?? legacy.slack_channel ?? def.slack_channel,
+        retention_days: Number(
+          map[`${prefix}.retention_days`] ?? legacy.retention_days ?? def.retention_days,
+        ),
       };
     };
 
     return {
-      retention_days: Number(map.retention_days ?? DEFAULT_SETTINGS.retention_days),
       health: readType('health', DEFAULT_HEALTH),
       feature: readType('feature', DEFAULT_FEATURE),
     };

@@ -16,20 +16,8 @@ const ACTION_LABEL: Record<Action, string> = {
 };
 
 const TYPE_TOOLTIP: Record<EndpointType, string> = {
-  health: `서버 생존 확인용 가벼운 API (예: /health)
-응답이 빠르고 일관됨, DB 의존 적음
-
-권장 설정:
-· 임계값 엄격 (warning 500ms / critical 1초)
-· 연속 2~3회 임계 초과 시 즉시 알람
-· "서버 다운" 시그널`,
-  feature: `실제 비즈니스 로직 API (랭킹, 콘텐츠 목록 등)
-무겁고 응답시간 변동성 큼, DB/캐시 의존
-
-권장 설정:
-· 임계값 느슨 (warning 3초 / critical 7초)
-· 그룹 누적 또는 사이클 동시 알람
-· "DB 병목/캐시 깨짐" 같은 점진적 시그널`,
+  health: `서버 생존 확인용 가벼운 API (예: /health)`,
+  feature: `실제 비즈니스 로직 API (랭킹, 콘텐츠 목록 등)`,
 };
 
 const isPopover = typeof window !== 'undefined' && window.location.hash === '#popover';

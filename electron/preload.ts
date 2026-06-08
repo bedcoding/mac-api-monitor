@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   recentMeasurements: (endpointId: number, hours: number) =>
     ipcRenderer.invoke('measurements:recent', endpointId, hours),
   recentEvents: (limit: number) => ipcRenderer.invoke('events:recent', limit),
+  recentThresholdExceeded: (type: 'health' | 'feature', limit: number) =>
+    ipcRenderer.invoke('events:thresholdExceeded', type, limit),
   testSlack: (type: 'health' | 'feature') => ipcRenderer.invoke('slack:test', type),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: unknown) => ipcRenderer.invoke('settings:update', patch),

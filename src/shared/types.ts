@@ -47,10 +47,10 @@ export interface TypeSettings {
   slack_webhook_url: string;
   slack_bot_token: string;
   slack_channel: string;
+  retention_days: number;
 }
 
 export interface Settings {
-  retention_days: number;
   health: TypeSettings;
   feature: TypeSettings;
 }
@@ -80,6 +80,20 @@ export interface AlarmEvent {
   detail: string;
 }
 
+export interface ThresholdEvent {
+  id: number;
+  ts: number;
+  duration_ms: number;
+  status: number;
+  ok: number;
+  endpoint_id: number;
+  label: string;
+  url: string;
+  method: string;
+  group_name: string | null;
+  level: 'warning' | 'critical';
+}
+
 declare global {
   interface Window {
     api: {
@@ -89,6 +103,7 @@ declare global {
       importEndpoints: (json: string, forceType?: EndpointType) => Promise<number>;
       recentMeasurements: (endpointId: number, hours: number) => Promise<Measurement[]>;
       recentEvents: (limit: number) => Promise<AlarmEvent[]>;
+      recentThresholdExceeded: (type: EndpointType, limit: number) => Promise<ThresholdEvent[]>;
       testSlack: (type: EndpointType) => Promise<{ ok: boolean; message: string }>;
       getSettings: () => Promise<Settings>;
       updateSettings: (patch: SettingsPatch) => Promise<void>;

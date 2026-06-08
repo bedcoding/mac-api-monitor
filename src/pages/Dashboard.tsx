@@ -94,7 +94,6 @@ export function MonitorList({
 export function AddPanel({ type, onDone }: { type: EndpointType; onDone: () => void }) {
   const [draft, setDraft] = useState({ method: 'GET', url: '', label: '', group: '' });
   const [importText, setImportText] = useState('');
-  const [tab, setTab] = useState<'manual' | 'import'>('manual');
 
   async function onAdd() {
     const url = draft.url.trim();
@@ -127,18 +126,10 @@ export function AddPanel({ type, onDone }: { type: EndpointType; onDone: () => v
   }
 
   return (
-    <div style={card}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        <PanelTab active={tab === 'manual'} onClick={() => setTab('manual')}>
-          직접 추가
-        </PanelTab>
-        <PanelTab active={tab === 'import'} onClick={() => setTab('import')}>
-          JSON Import
-        </PanelTab>
-      </div>
-
-      {tab === 'manual' ? (
-        <div style={{ display: 'grid', gap: 8 }}>
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={card}>
+        <h4 style={sectionTitle}>직접 추가</h4>
+        <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '70px minmax(0,1fr)', gap: 8 }}>
             <select
               value={draft.method}
@@ -164,60 +155,54 @@ export function AddPanel({ type, onDone }: { type: EndpointType; onDone: () => v
               style={{ minWidth: 0 }}
             />
             <input
-              placeholder="그룹 (예: thanos)"
+              placeholder="그룹 (예: main-api)"
               value={draft.group}
               onChange={e => setDraft(d => ({ ...d, group: e.target.value }))}
               style={{ minWidth: 0 }}
             />
           </div>
-          <button onClick={onAdd} style={{ justifySelf: 'start' }}>
-            {TYPE_LABEL[type]}로 추가
+          <button onClick={onAdd} className="btn-primary" style={{ justifySelf: 'start' }}>
+            + {TYPE_LABEL[type]}
           </button>
         </div>
-      ) : (
-        <div style={{ display: 'grid', gap: 8 }}>
+      </div>
+
+      <div style={card}>
+        <h4 style={sectionTitle}>JSON Import</h4>
+        <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
           <textarea
             value={importText}
             onChange={e => setImportText(e.target.value)}
-            placeholder={`{\n  "version": 1,\n  "endpoints": [\n    { "method": "GET", "url": "...", "label": "...", "group": "..." }\n  ]\n}`}
+            placeholder={`{
+  "version": 1,
+  "endpoints": [
+    {
+      "method": "GET",
+      "url": "https://api.example.com/v2/health",
+      "label": "메인 헬스체크",
+      "group": "main-api"
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/v2/ranking",
+      "label": "랭킹 API",
+      "group": "main-api"
+    }
+  ]
+}`}
             style={{ width: '100%', minHeight: 100, fontFamily: 'monospace' }}
           />
-          <p style={{ fontSize: 11, opacity: 0.5, margin: 0 }}>
-            여기서 import 하면 전부 <strong>{TYPE_LABEL[type]}</strong>로 등록됩니다. (JSON의 type
-            값은 무시)
-          </p>
-          <button onClick={onImport} disabled={!importText.trim()} style={{ justifySelf: 'start' }}>
-            Import → {TYPE_LABEL[type]}
+          <button
+            onClick={onImport}
+            disabled={!importText.trim()}
+            className="btn-primary"
+            style={{ justifySelf: 'start' }}
+          >
+            + {TYPE_LABEL[type]}
           </button>
         </div>
-      )}
+      </div>
     </div>
-  );
-}
-
-function PanelTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        background: active ? '#3b82f6' : 'transparent',
-        border: `1px solid ${active ? '#3b82f6' : '#2a2f3a'}`,
-        color: active ? '#fff' : '#a0aec0',
-        fontSize: 12,
-        padding: '4px 10px',
-        borderRadius: 6,
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -245,6 +230,13 @@ const selectStyle: React.CSSProperties = {
   border: '1px solid #2a2f3a',
   borderRadius: 6,
   padding: '6px 10px',
+};
+
+const sectionTitle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#e6e8ec',
 };
 
 const emptyStyle: React.CSSProperties = {

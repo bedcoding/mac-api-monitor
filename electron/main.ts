@@ -293,6 +293,12 @@ ipcMain.handle('measurements:recent', (_e, endpointId: number, hours: number) =>
 
 ipcMain.handle('events:recent', (_e, limit: number) => db.recentAlarmEvents(limit));
 
+ipcMain.handle('events:thresholdExceeded', (_e, type: 'health' | 'feature', limit: number) => {
+  const s = db.getSettings();
+  const cfg = type === 'health' ? s.health : s.feature;
+  return db.recentThresholdExceeded(type, cfg.warning_ms, cfg.critical_ms, limit);
+});
+
 ipcMain.handle('slack:test', (_e, type: 'health' | 'feature') => notifier.testSlack(type));
 
 ipcMain.handle('settings:get', () => db.getSettings());
