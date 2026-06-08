@@ -6,13 +6,15 @@ interface Props {
   endpoint: Endpoint;
   measurements: Measurement[];
   settings: Settings | null;
+  onRemove?: () => void;
 }
 
-export function EndpointCard({ endpoint, measurements, settings }: Props) {
+export function EndpointCard({ endpoint, measurements, settings, onRemove }: Props) {
   const [probing, setProbing] = useState(false);
   const latest = measurements[measurements.length - 1];
-  const warning = settings?.warning_ms ?? 3000;
-  const critical = settings?.critical_ms ?? 7000;
+  const cfg = settings ? settings[endpoint.type] : null;
+  const warning = cfg?.warning_ms ?? 3000;
+  const critical = cfg?.critical_ms ?? 7000;
 
   const status = computeStatus(latest, warning, critical);
 
@@ -69,9 +71,20 @@ export function EndpointCard({ endpoint, measurements, settings }: Props) {
             <span style={{ opacity: 0.5 }}>측정 대기 중</span>
           )}
         </div>
-        <button onClick={onProbe} disabled={probing}>
+        <button onClick={onProbe} disabled={probing} title="지금 측정">
           {probing ? '...' : '↻'}
         </button>
+        {onRemove && (
+          <button
+            onClick={() => {
+              if (confirm(`"${endpoint.label}" 삭제?`)) onRemove();
+            }}
+            title="삭제"
+            style={{ color: '#f87171' }}
+          >
+            ✕
+          </button>
+        )}
       </header>
 
       {chartData.length > 1 && (

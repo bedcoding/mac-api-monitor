@@ -2,6 +2,8 @@ import BetterSqlite3 from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'node:path';
 
+export type EndpointType = 'health' | 'feature';
+
 export interface Endpoint {
   id: number;
   method: string;
@@ -9,6 +11,7 @@ export interface Endpoint {
   label: string;
   note: string | null;
   group: string | null;
+  type: EndpointType;
 }
 
 export interface Measurement {
@@ -20,15 +23,53 @@ export interface Measurement {
   ok: number;
 }
 
-export interface Settings {
+export interface AlarmEvent {
+  id: number;
+  ts: number;
+  type: EndpointType;
+  group_name: string;
+  level: 'warning' | 'critical';
+  title: string;
+  detail: string;
+}
+
+export interface NewAlarmEvent {
+  ts: number;
+  type: EndpointType;
+  group_name: string;
+  level: 'warning' | 'critical';
+  title: string;
+  detail: string;
+}
+
+export type AlarmMode = 'consecutive' | 'sliding' | 'cycle';
+export type SlackMode = 'webhook' | 'bot';
+
+export interface TypeSettings {
   interval_ms: number;
   warning_ms: number;
   critical_ms: number;
-  slack_webhook_url: string;
+  stagger_ms: number;
+  alarm_mode: AlarmMode;
+  alarm_consecutive: number; // consecutive 모드: 연속 N회
+  alarm_window: number; // sliding 모드: 최근 N개 측정 윈도우
+  alarm_window_hits: number; // sliding 모드: 윈도우 안 임계 초과 M개
+  alarm_cycle_percent: number; // cycle 모드: 한 사이클에서 임계 초과 비율(%) 임계치
+  // 알람/슬랙 (type 별 독립)
   alarms_enabled: number;
-  retention_days: number;
-  alarm_consecutive: number;
   alarm_cooldown_ms: number;
+  slack_mode: SlackMode;
+  slack_webhook_url: string;
+  slack_bot_token: string;
+  slack_channel: string;
+}
+
+export interface Settings {
+  // 공통 (type 무관)
+  retention_days: number;
+  // type 별
+  health: TypeSettings;
+  feature: TypeSettings;
 }
 
 export interface NewEndpoint {
@@ -37,17 +78,49 @@ export interface NewEndpoint {
   label: string;
   note?: string | null;
   group?: string | null;
+  type?: EndpointType;
 }
 
-const DEFAULT_SETTINGS: Settings = {
-  interval_ms: 30_000,
+const DEFAULT_HEALTH: TypeSettings = {
+  interval_ms: 60_000,
+  warning_ms: 500,
+  critical_ms: 1_000,
+  stagger_ms: 5_000,
+  alarm_mode: 'consecutive',
+  alarm_consecutive: 2,
+  alarm_window: 5,
+  alarm_window_hits: 3,
+  alarm_cycle_percent: 60,
+  alarms_enabled: 0,
+  alarm_cooldown_ms: 10 * 60_000,
+  slack_mode: 'webhook',
+  slack_webhook_url: '',
+  slack_bot_token: '',
+  slack_channel: '',
+};
+
+const DEFAULT_FEATURE: TypeSettings = {
+  interval_ms: 60_000,
   warning_ms: 3_000,
   critical_ms: 7_000,
-  slack_webhook_url: '',
+  stagger_ms: 1_000,
+  alarm_mode: 'cycle',
+  alarm_consecutive: 10,
+  alarm_window: 10,
+  alarm_window_hits: 10,
+  alarm_cycle_percent: 60,
   alarms_enabled: 0,
-  retention_days: 7,
-  alarm_consecutive: 3,
   alarm_cooldown_ms: 10 * 60_000,
+  slack_mode: 'webhook',
+  slack_webhook_url: '',
+  slack_bot_token: '',
+  slack_channel: '',
+};
+
+const DEFAULT_SETTINGS: Settings = {
+  retention_days: 7,
+  health: DEFAULT_HEALTH,
+  feature: DEFAULT_FEATURE,
 };
 
 interface EndpointRow {
@@ -57,6 +130,7 @@ interface EndpointRow {
   label: string;
   note: string | null;
   group_name: string | null;
+  type: string | null;
 }
 
 function rowToEndpoint(r: EndpointRow): Endpoint {
@@ -67,6 +141,7 @@ function rowToEndpoint(r: EndpointRow): Endpoint {
     label: r.label,
     note: r.note,
     group: r.group_name,
+    type: r.type === 'health' ? 'health' : 'feature',
   };
 }
 
@@ -89,7 +164,8 @@ export class Database {
         url TEXT NOT NULL,
         label TEXT NOT NULL,
         note TEXT,
-        group_name TEXT
+        group_name TEXT,
+        type TEXT NOT NULL DEFAULT 'feature'
       );
       CREATE TABLE IF NOT EXISTS measurements (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,31 +184,63 @@ export class Database {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS alarm_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        level TEXT NOT NULL,
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_alarm_events_ts
+        ON alarm_events(ts DESC);
     `);
+
+    // 기존 DB (type 컬럼 없음) 호환: ADD COLUMN 시도, 이미 있으면 무시
+    try {
+      this.db.exec(`ALTER TABLE endpoints ADD COLUMN type TEXT NOT NULL DEFAULT 'feature'`);
+    } catch {
+      // already exists
+    }
   }
 
   listEndpoints(): Endpoint[] {
     const rows = this.db
-      .prepare('SELECT id, method, url, label, note, group_name FROM endpoints ORDER BY id')
+      .prepare('SELECT id, method, url, label, note, group_name, type FROM endpoints ORDER BY id')
       .all() as EndpointRow[];
     return rows.map(rowToEndpoint);
   }
 
   addEndpoint(ep: NewEndpoint): number {
     const stmt = this.db.prepare(
-      'INSERT INTO endpoints (method, url, label, note, group_name) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO endpoints (method, url, label, note, group_name, type) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const r = stmt.run(ep.method, ep.url, ep.label, ep.note ?? null, ep.group ?? null);
+    const r = stmt.run(
+      ep.method,
+      ep.url,
+      ep.label,
+      ep.note ?? null,
+      ep.group ?? null,
+      ep.type ?? 'feature',
+    );
     return Number(r.lastInsertRowid);
   }
 
   addEndpointsBulk(eps: NewEndpoint[]): number {
     const stmt = this.db.prepare(
-      'INSERT INTO endpoints (method, url, label, note, group_name) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO endpoints (method, url, label, note, group_name, type) VALUES (?, ?, ?, ?, ?, ?)',
     );
     const tx = this.db.transaction((rows: NewEndpoint[]) => {
       for (const ep of rows) {
-        stmt.run(ep.method, ep.url, ep.label, ep.note ?? null, ep.group ?? null);
+        stmt.run(
+          ep.method,
+          ep.url,
+          ep.label,
+          ep.note ?? null,
+          ep.group ?? null,
+          ep.type ?? 'feature',
+        );
       }
     });
     tx(eps);
@@ -163,7 +271,22 @@ export class Database {
   pruneOldMeasurements(retentionDays: number): number {
     const cutoff = Date.now() - retentionDays * 24 * 3600_000;
     const r = this.db.prepare('DELETE FROM measurements WHERE ts < ?').run(cutoff);
+    this.db.prepare('DELETE FROM alarm_events WHERE ts < ?').run(cutoff);
     return Number(r.changes);
+  }
+
+  recordAlarmEvent(e: NewAlarmEvent) {
+    this.db
+      .prepare(
+        'INSERT INTO alarm_events (ts, type, group_name, level, title, detail) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(e.ts, e.type, e.group_name, e.level, e.title, e.detail);
+  }
+
+  recentAlarmEvents(limit = 100): AlarmEvent[] {
+    return this.db
+      .prepare('SELECT * FROM alarm_events ORDER BY ts DESC LIMIT ?')
+      .all(limit) as AlarmEvent[];
   }
 
   getSettings(): Settings {
@@ -174,27 +297,94 @@ export class Database {
     const map: Record<string, string> = {};
     for (const r of rows) map[r.key] = r.value;
 
+    // 구버전 키 → 두 type 의 fallback 으로 흡수 (전역 슬랙/알람이 type별로 이동했으므로)
+    const legacy = {
+      interval_ms: map.interval_ms,
+      warning_ms: map.warning_ms,
+      critical_ms: map.critical_ms,
+      alarm_consecutive: map.alarm_consecutive,
+      alarms_enabled: map.alarms_enabled,
+      alarm_cooldown_ms: map.alarm_cooldown_ms,
+      slack_mode: map.slack_mode,
+      slack_webhook_url: map.slack_webhook_url,
+      slack_bot_token: map.slack_bot_token,
+      slack_channel: map.slack_channel,
+    };
+
+    const readType = (prefix: string, def: TypeSettings): TypeSettings => {
+      const rawMode = map[`${prefix}.alarm_mode`];
+      const alarm_mode: AlarmMode =
+        rawMode === 'sliding' || rawMode === 'consecutive' || rawMode === 'cycle'
+          ? rawMode
+          : def.alarm_mode;
+      const rawSlackMode = map[`${prefix}.slack_mode`] ?? legacy.slack_mode;
+      const slack_mode: SlackMode = rawSlackMode === 'bot' ? 'bot' : 'webhook';
+      return {
+        interval_ms: Number(map[`${prefix}.interval_ms`] ?? legacy.interval_ms ?? def.interval_ms),
+        warning_ms: Number(map[`${prefix}.warning_ms`] ?? legacy.warning_ms ?? def.warning_ms),
+        critical_ms: Number(map[`${prefix}.critical_ms`] ?? legacy.critical_ms ?? def.critical_ms),
+        stagger_ms: Number(map[`${prefix}.stagger_ms`] ?? def.stagger_ms),
+        alarm_mode,
+        alarm_consecutive: Number(
+          map[`${prefix}.alarm_consecutive`] ?? legacy.alarm_consecutive ?? def.alarm_consecutive,
+        ),
+        alarm_window: Number(map[`${prefix}.alarm_window`] ?? def.alarm_window),
+        alarm_window_hits: Number(map[`${prefix}.alarm_window_hits`] ?? def.alarm_window_hits),
+        alarm_cycle_percent: Number(
+          map[`${prefix}.alarm_cycle_percent`] ?? def.alarm_cycle_percent,
+        ),
+        alarms_enabled: Number(
+          map[`${prefix}.alarms_enabled`] ?? legacy.alarms_enabled ?? def.alarms_enabled,
+        ),
+        alarm_cooldown_ms: Number(
+          map[`${prefix}.alarm_cooldown_ms`] ?? legacy.alarm_cooldown_ms ?? def.alarm_cooldown_ms,
+        ),
+        slack_mode,
+        slack_webhook_url:
+          map[`${prefix}.slack_webhook_url`] ?? legacy.slack_webhook_url ?? def.slack_webhook_url,
+        slack_bot_token:
+          map[`${prefix}.slack_bot_token`] ?? legacy.slack_bot_token ?? def.slack_bot_token,
+        slack_channel: map[`${prefix}.slack_channel`] ?? legacy.slack_channel ?? def.slack_channel,
+      };
+    };
+
     return {
-      interval_ms: Number(map.interval_ms ?? DEFAULT_SETTINGS.interval_ms),
-      warning_ms: Number(map.warning_ms ?? DEFAULT_SETTINGS.warning_ms),
-      critical_ms: Number(map.critical_ms ?? DEFAULT_SETTINGS.critical_ms),
-      slack_webhook_url: map.slack_webhook_url ?? DEFAULT_SETTINGS.slack_webhook_url,
-      alarms_enabled: Number(map.alarms_enabled ?? DEFAULT_SETTINGS.alarms_enabled),
       retention_days: Number(map.retention_days ?? DEFAULT_SETTINGS.retention_days),
-      alarm_consecutive: Number(map.alarm_consecutive ?? DEFAULT_SETTINGS.alarm_consecutive),
-      alarm_cooldown_ms: Number(map.alarm_cooldown_ms ?? DEFAULT_SETTINGS.alarm_cooldown_ms),
+      health: readType('health', DEFAULT_HEALTH),
+      feature: readType('feature', DEFAULT_FEATURE),
     };
   }
 
-  updateSettings(patch: Partial<Settings>) {
+  updateSettings(patch: SettingsPatch) {
     const stmt = this.db.prepare(
       'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
     );
+
+    const flat: Array<[string, unknown]> = [];
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'health' || key === 'feature') {
+        if (value && typeof value === 'object') {
+          for (const [k, v] of Object.entries(value)) {
+            flat.push([`${key}.${k}`, v]);
+          }
+        }
+      } else {
+        flat.push([key, value]);
+      }
+    }
+
     const tx = this.db.transaction((entries: Array<[string, unknown]>) => {
       for (const [key, value] of entries) {
         stmt.run(key, String(value));
       }
     });
-    tx(Object.entries(patch));
+    tx(flat);
   }
 }
+
+export type SettingsPatch = Partial<
+  Omit<Settings, 'health' | 'feature'> & {
+    health: Partial<TypeSettings>;
+    feature: Partial<TypeSettings>;
+  }
+>;

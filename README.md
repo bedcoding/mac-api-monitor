@@ -153,8 +153,45 @@ SQLite DB: `~/Library/Application Support/mac-api-monitor/mac-api-monitor.db`
 
 ## 진행 중인 작업 (다음 세션)
 
-- [ ] 풀 기능 테스트 미수행 — endpoint 추가 → fetch → 알람 발동 → Slack 까지의 풀 워크플로우 검증 필요
-- [ ] 로컬 폴더명 `api-monitor` → `mac-api-monitor` 로 변경 (GitHub repo 명과 통일)
-  - 변경 시 IDE/세션 재오픈 필요
-  - 변경 후 `yarn dev` 한 번 더 확인 (경로 캐시 영향 없는지)
-- [ ] 트레이 아이콘 — 현재 emoji 텍스트만, 단색으로 회색 보일 수 있음. `assets/tray.png` 16×16 추가하면 풀 컬러
+### v0.1 마무리
+- [ ] 풀 기능 테스트 미수행 — endpoint 추가 → fetch → 알람 발동 → Slack 까지의 풀 워크플로우 검증
+
+### v0.2 — Health / Features 2-tier 모니터링 (대형 리팩터)
+
+**배경**: 모니터링 대상 API 가 두 종류로 자연스럽게 갈림.
+
+| 종류 | 예시 | 특성 | 알람 의미 |
+|---|---|---|---|
+| **Health** | `/api/health`, `/api/time` | 가볍고 일관됨, DB 의존 없음 | 즉시 다운 시그널 |
+| **Feature** | `common_meta`, `ranking`, content-list 등 | 무겁고 들쭉날쭉, DB/캐시 민감 | 점진적 degrade 시그널 |
+
+같은 임계값/주기/알람 정책으로 다루면 양쪽 다 망가짐 (health 임계값으로 feature 보면 알람 폭격, feature 임계값으로 health 보면 조용한 이상 놓침).
+
+**설계 결정**:
+
+1. **endpoint 에 `type: 'health' | 'feature'` 필드 추가** — 등록 시 사용자가 분류
+2. **2탭 UI** — `[Health] [Features] [Endpoints] [Settings]`. 각 탭 안에서 *서버군별 (group) 섹션* 으로 구조화 (Thanos/Wanda/Panther/... 추가돼도 탭은 그대로)
+3. **type 별 독립 정책** — Settings 도 `health: {...}` / `feature: {...}` 로 분리. 각자 다른 interval/warning/critical/알람 전략
+4. **스케줄링**:
+   - Health: 1분 주기 + 5초 stagger, *일제히* 호출하되 burst 만 분산 (스냅샷 의미 유지)
+   - Feature: 1분 주기 + 1초 stagger × 27개 → 27초에 한 사이클
+   - 두 그룹은 독립 트랙
+5. **알람 전략 분기**:
+   - Health: `consecutive` (연속 2-3회면 즉시 알람, 다운 직감)
+   - Feature: `sliding-window` (최근 N회 측정 중 M개가 임계 초과 시 알람)
+6. **그룹 간 상관 분석 (선택)** — 알람 메시지에 다른 그룹 상태 같이 표시. 예: "Feature/Thanos 27개 중 12개 느림 (Health 정상 → DB 병목 의심)"
+
+**그룹 단위 알람 통합**: 같은 서버군의 endpoint 가 연달아 터질 때 알람 1건으로 묶기 (현재는 endpoint 별 N건 burst).
+
+**영향 받는 파일**:
+- `db.ts` — endpoints 테이블에 `type` 컬럼, settings 를 type 별로 분리
+- `scheduler.ts` — type/group 별 독립 트랙 + per-group stagger. 현재 `Promise.all` 동시 호출 교체
+- `notifier.ts` — type 별 알람 전략 분기 (consecutive vs sliding-window), 그룹 단위 카운터
+- `pages/` — Dashboard.tsx → Health.tsx + Features.tsx 로 분할. Endpoints.tsx 는 type 선택 UI 추가
+- `App.tsx` — 탭 구조 4개로
+- `shared/types.ts` — Endpoint 에 type, Settings 분리
+
+### 기타 후보
+- 실패 시 에러 메시지 컬럼 (DNS/timeout/HTTP 구분용)
+- "회전 가능" endpoint 지원 — URL 의 파라미터 값을 매 측정마다 다른 값으로 순환
+- 트레이 아이콘 — 현재 emoji 텍스트만, `assets/tray.png` 16×16 추가하면 풀 컬러

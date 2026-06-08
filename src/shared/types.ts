@@ -1,3 +1,5 @@
+export type EndpointType = 'health' | 'feature';
+
 export interface Endpoint {
   id: number;
   method: string;
@@ -5,6 +7,7 @@ export interface Endpoint {
   label: string;
   note: string | null;
   group: string | null;
+  type: EndpointType;
 }
 
 export interface NewEndpoint {
@@ -13,6 +16,7 @@ export interface NewEndpoint {
   label: string;
   note?: string | null;
   group?: string | null;
+  type?: EndpointType;
 }
 
 export interface Measurement {
@@ -24,16 +28,39 @@ export interface Measurement {
   ok: number;
 }
 
-export interface Settings {
+export type AlarmMode = 'consecutive' | 'sliding' | 'cycle';
+export type SlackMode = 'webhook' | 'bot';
+
+export interface TypeSettings {
   interval_ms: number;
   warning_ms: number;
   critical_ms: number;
-  slack_webhook_url: string;
-  alarms_enabled: number;
-  retention_days: number;
+  stagger_ms: number;
+  alarm_mode: AlarmMode;
   alarm_consecutive: number;
+  alarm_window: number;
+  alarm_window_hits: number;
+  alarm_cycle_percent: number;
+  alarms_enabled: number;
   alarm_cooldown_ms: number;
+  slack_mode: SlackMode;
+  slack_webhook_url: string;
+  slack_bot_token: string;
+  slack_channel: string;
 }
+
+export interface Settings {
+  retention_days: number;
+  health: TypeSettings;
+  feature: TypeSettings;
+}
+
+export type SettingsPatch = Partial<
+  Omit<Settings, 'health' | 'feature'> & {
+    health: Partial<TypeSettings>;
+    feature: Partial<TypeSettings>;
+  }
+>;
 
 export interface ProbeResult {
   endpointId: number;
@@ -43,16 +70,28 @@ export interface ProbeResult {
   ok: boolean;
 }
 
+export interface AlarmEvent {
+  id: number;
+  ts: number;
+  type: EndpointType;
+  group_name: string;
+  level: 'warning' | 'critical';
+  title: string;
+  detail: string;
+}
+
 declare global {
   interface Window {
     api: {
       listEndpoints: () => Promise<Endpoint[]>;
       addEndpoint: (ep: NewEndpoint) => Promise<number>;
       removeEndpoint: (id: number) => Promise<void>;
-      importEndpoints: (json: string) => Promise<number>;
+      importEndpoints: (json: string, forceType?: EndpointType) => Promise<number>;
       recentMeasurements: (endpointId: number, hours: number) => Promise<Measurement[]>;
+      recentEvents: (limit: number) => Promise<AlarmEvent[]>;
+      testSlack: (type: EndpointType) => Promise<{ ok: boolean; message: string }>;
       getSettings: () => Promise<Settings>;
-      updateSettings: (patch: Partial<Settings>) => Promise<void>;
+      updateSettings: (patch: SettingsPatch) => Promise<void>;
       probeNow: (endpointId: number) => Promise<ProbeResult | null>;
       openMainWindow: () => Promise<void>;
       closePopover: () => Promise<void>;

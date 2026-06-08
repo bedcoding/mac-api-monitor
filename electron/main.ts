@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, type NativeImage } from 'electron';
 import path from 'node:path';
-import { Database, type NewEndpoint } from './db';
+import { Database, type NewEndpoint, type SettingsPatch } from './db';
 import { Scheduler, type ProbeResult } from './scheduler';
 import { Notifier } from './notifier';
 import { seedIfEmpty } from './seed';
@@ -184,12 +184,14 @@ function createTray() {
 
 function classifyStatus(result: ProbeResult): 'healthy' | 'warning' | 'critical' {
   const s = db.getSettings();
-  if (!result.ok || result.durationMs >= s.critical_ms) return 'critical';
-  if (result.durationMs >= s.warning_ms) return 'warning';
+  const ep = db.listEndpoints().find(e => e.id === result.endpointId);
+  const cfg = ep?.type === 'health' ? s.health : s.feature;
+  if (!result.ok || result.durationMs >= cfg.critical_ms) return 'critical';
+  if (result.durationMs >= cfg.warning_ms) return 'warning';
   return 'healthy';
 }
 
-function parseImport(json: string): NewEndpoint[] {
+function parseImport(json: string, forceType?: 'health' | 'feature'): NewEndpoint[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -215,14 +217,18 @@ function parseImport(json: string): NewEndpoint[] {
     }
     const url = typeof ep.url === 'string' ? ep.url.trim() : '';
     if (!url) {
-      throw new Error(`endpoints[${i}].url 이 비어있습니다.`);
+      throw new Error(`endpoints[${i}].url이 비어있습니다.`);
     }
+    const rawType = typeof ep.type === 'string' ? ep.type.toLowerCase() : '';
+    const type = forceType ?? (rawType === 'health' ? 'health' : 'feature');
+
     result.push({
       method: typeof ep.method === 'string' ? ep.method : 'GET',
       url,
       label: typeof ep.label === 'string' && ep.label.trim() ? ep.label : url,
       note: typeof ep.note === 'string' ? ep.note : null,
       group: typeof ep.group === 'string' ? ep.group : null,
+      type,
     });
   }
 
@@ -258,7 +264,7 @@ app.on('window-all-closed', () => {
 ipcMain.handle('endpoints:list', () => db.listEndpoints());
 ipcMain.handle('endpoints:add', (_e, ep: NewEndpoint) => {
   if (!ep || typeof ep.url !== 'string' || !ep.url.trim()) {
-    throw new Error('url 이 비어있습니다.');
+    throw new Error('url이 비어있습니다.');
   }
   return db.addEndpoint({
     method: ep.method ?? 'GET',
@@ -266,6 +272,7 @@ ipcMain.handle('endpoints:add', (_e, ep: NewEndpoint) => {
     label: ep.label?.trim() || ep.url.trim(),
     note: ep.note ?? null,
     group: ep.group ?? null,
+    type: ep.type === 'health' ? 'health' : 'feature',
   });
 });
 ipcMain.handle('endpoints:remove', (_e, id: number) => {
@@ -274,8 +281,9 @@ ipcMain.handle('endpoints:remove', (_e, id: number) => {
   notifier.reset(id);
   updateTray();
 });
-ipcMain.handle('endpoints:import', (_e, json: string) => {
-  const eps = parseImport(json);
+ipcMain.handle('endpoints:import', (_e, json: string, forceType?: string) => {
+  const ft = forceType === 'health' || forceType === 'feature' ? forceType : undefined;
+  const eps = parseImport(json, ft);
   return db.addEndpointsBulk(eps);
 });
 
@@ -283,8 +291,12 @@ ipcMain.handle('measurements:recent', (_e, endpointId: number, hours: number) =>
   db.recentMeasurements(endpointId, hours),
 );
 
+ipcMain.handle('events:recent', (_e, limit: number) => db.recentAlarmEvents(limit));
+
+ipcMain.handle('slack:test', (_e, type: 'health' | 'feature') => notifier.testSlack(type));
+
 ipcMain.handle('settings:get', () => db.getSettings());
-ipcMain.handle('settings:update', (_e, patch) => {
+ipcMain.handle('settings:update', (_e, patch: SettingsPatch) => {
   db.updateSettings(patch);
   const next = db.getSettings();
   scheduler.reconfigure(next);
