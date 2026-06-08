@@ -41,7 +41,7 @@ export function Slack({ type }: { type: EndpointType }) {
   }
 
   return (
-    <section style={{ display: 'grid', gap: 16, maxWidth: 640 }}>
+    <section style={{ display: 'grid', gap: 16, maxWidth: 900, margin: '0 auto', width: '100%' }}>
       <div style={card}>
         <Row label="알람 켜기">
           <input

@@ -3,11 +3,15 @@ import type { Settings as SettingsType, TypeSettings, EndpointType } from '../sh
 
 export function Settings({ onlyType }: { onlyType: EndpointType }) {
   const [settings, setSettings] = useState<SettingsType | null>(null);
+  const [endpointCount, setEndpointCount] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     window.api.getSettings().then(setSettings);
-  }, []);
+    window.api.listEndpoints().then(eps => {
+      setEndpointCount(eps.filter(e => e.type === onlyType).length);
+    });
+  }, [onlyType]);
 
   if (!settings) return null;
 
@@ -25,8 +29,12 @@ export function Settings({ onlyType }: { onlyType: EndpointType }) {
   }
 
   return (
-    <section style={{ display: 'grid', gap: 16, maxWidth: 640 }}>
-      <TypeCard value={settings[onlyType]} onChange={patch => saveType(onlyType, patch)} />
+    <section style={{ display: 'grid', gap: 16, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+      <TypeCard
+        value={settings[onlyType]}
+        onChange={patch => saveType(onlyType, patch)}
+        endpointCount={endpointCount}
+      />
       {saving && <small style={{ opacity: 0.6 }}>저장 중...</small>}
     </section>
   );
@@ -35,10 +43,18 @@ export function Settings({ onlyType }: { onlyType: EndpointType }) {
 function TypeCard({
   value,
   onChange,
+  endpointCount,
 }: {
   value: TypeSettings;
   onChange: (patch: Partial<TypeSettings>) => void;
+  endpointCount: number;
 }) {
+  // 실질 주기 = max(interval, stagger × (개수-1) + 1초)
+  // stagger × N 이 interval 보다 크면 interval 무시되고 stagger 가 주기 결정
+  const cycleSpreadMs = value.stagger_ms * Math.max(0, endpointCount - 1);
+  const effectiveCycleMs = Math.max(value.interval_ms, cycleSpreadMs + 1000);
+  const intervalDominated = effectiveCycleMs > value.interval_ms;
+
   return (
     <div style={card}>
       <h3 style={cardTitle}>측정 / 임계값 / 알람 조건</h3>
@@ -61,6 +77,22 @@ function TypeCard({
           onChange={e => onChange({ stagger_ms: Math.max(0, Number(e.target.value)) * 1000 })}
         />
       </Row>
+
+      {endpointCount > 0 && (
+        <p style={cycleInfo}>
+          💡 현재 등록된 endpoint <strong>{endpointCount}개</strong> 기준 실질 측정 주기:{' '}
+          <strong>{Math.round(effectiveCycleMs / 1000)}초</strong>
+          {intervalDominated && (
+            <>
+              {' '}
+              <span style={{ color: '#fbbf24' }}>
+                ⚠️ stagger × {endpointCount - 1} = {Math.round(cycleSpreadMs / 1000)}초가 측정 간격
+                {Math.round(value.interval_ms / 1000)}초보다 길어 stagger 가 주기를 결정합니다.
+              </span>
+            </>
+          )}
+        </p>
+      )}
 
       <Row label="주의 (ms)" hint="이 값 이상이면 🟡 주의 — 로그 적재.">
         <input
@@ -284,6 +316,17 @@ const modeExample: React.CSSProperties = {
   lineHeight: 1.6,
   opacity: 0.7,
   margin: 0,
+  padding: '8px 10px',
+  background: '#14161a',
+  borderRadius: 6,
+  border: '1px solid #2a2f3a',
+};
+
+const cycleInfo: React.CSSProperties = {
+  fontSize: 11,
+  lineHeight: 1.6,
+  opacity: 0.75,
+  margin: '0 0 12px',
   padding: '8px 10px',
   background: '#14161a',
   borderRadius: 6,

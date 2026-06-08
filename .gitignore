@@ -7,4 +7,6 @@ release
 .vite
 settings.local.json
 sample-endpoints.json
+health-endpoints.json
+feature-endpoints.json
 다른_클로드가_하는말.md
