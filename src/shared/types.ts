@@ -56,6 +56,7 @@ declare global {
       probeNow: (endpointId: number) => Promise<ProbeResult | null>;
       openMainWindow: () => Promise<void>;
       closePopover: () => Promise<void>;
+      setPopoverPinned: (pinned: boolean) => Promise<void>;
       setPopoverHeight: (height: number) => Promise<void>;
     };
   }

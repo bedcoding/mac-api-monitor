@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('api', {
   probeNow: (endpointId: number) => ipcRenderer.invoke('probe:now', endpointId),
   openMainWindow: () => ipcRenderer.invoke('window:openMain'),
   closePopover: () => ipcRenderer.invoke('window:closePopover'),
+  setPopoverPinned: (pinned: boolean) =>
+    ipcRenderer.invoke('window:setPopoverPinned', pinned),
   setPopoverHeight: (height: number) =>
     ipcRenderer.invoke('window:setPopoverHeight', height),
 });

@@ -57,10 +57,27 @@ const HEADER_HEIGHT = 40;
 const BODY_VPAD = 28; // padding 14 × 2
 const POPOVER_MIN = 200;
 const POPOVER_MAX = 760;
+const PIN_STORAGE_KEY = 'popover.pinned';
 
 function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React.ReactNode }) {
   const innerRef = useRef<HTMLDivElement>(null);
   const lastSentRef = useRef(0);
+  const [pinned, setPinned] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(PIN_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    window.api.setPopoverPinned(pinned);
+    try {
+      localStorage.setItem(PIN_STORAGE_KEY, pinned ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [pinned]);
 
   async function openMain() {
     await window.api.openMainWindow();
@@ -120,6 +137,7 @@ function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React
       >
         <strong style={{ fontSize: 13 }}>API Monitor</strong>
         <div style={{ flex: 1 }}>{nav}</div>
+        <PinButton pinned={pinned} onToggle={() => setPinned(p => !p)} />
         <button onClick={openMain} style={{ fontSize: 12, padding: '4px 10px' }}>
           전체 보기
         </button>
@@ -129,6 +147,43 @@ function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React
         <div ref={innerRef}>{children}</div>
       </div>
     </div>
+  );
+}
+
+function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={pinned ? '핀 해제 (포커스 잃으면 자동으로 닫힘)' : '핀 고정 (다른 곳 클릭해도 안 닫힘)'}
+      aria-pressed={pinned}
+      style={{
+        background: pinned ? '#3b82f6' : 'transparent',
+        border: `1px solid ${pinned ? '#3b82f6' : '#2a2f3a'}`,
+        color: pinned ? '#fff' : '#a0aec0',
+        fontSize: 12,
+        padding: '4px 8px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        cursor: 'pointer',
+      }}
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ transform: pinned ? 'rotate(0deg)' : 'rotate(45deg)', transition: 'transform 120ms' }}
+      >
+        <path d="M9.5 1.5l5 5-2 2-1-1-3.5 3.5.5 2-1 1-6-6 1-1 2 .5 3.5-3.5-1-1 2-2z" />
+        <path d="M5 11l-3 3" />
+      </svg>
+      {pinned ? '고정됨' : '고정'}
+    </button>
   );
 }
 

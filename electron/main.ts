@@ -11,6 +11,7 @@ let tray: Tray | null = null;
 let scheduler: Scheduler;
 let db: Database;
 let notifier: Notifier;
+let popoverPinned = false;
 
 const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical'>();
 
@@ -55,6 +56,7 @@ function createPopover() {
   }
 
   popover.on('blur', () => {
+    if (popoverPinned) return;
     if (popover && !popover.webContents.isDevToolsOpened()) {
       popover.hide();
     }
@@ -295,6 +297,9 @@ ipcMain.handle('probe:now', async (_e, endpointId: number) => {
 
 ipcMain.handle('window:openMain', () => openMainWindow());
 ipcMain.handle('window:closePopover', () => popover?.hide());
+ipcMain.handle('window:setPopoverPinned', (_e, pinned: boolean) => {
+  popoverPinned = !!pinned;
+});
 ipcMain.handle('window:setPopoverHeight', (_e, height: number) => {
   if (!popover) return;
   const clamped = Math.max(POPOVER_MIN_HEIGHT, Math.min(POPOVER_MAX_HEIGHT, Math.round(height)));
