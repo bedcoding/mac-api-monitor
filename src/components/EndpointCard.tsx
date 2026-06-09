@@ -39,9 +39,11 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
         borderRadius: 12,
         padding: 20,
         background: '#1c2028',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
     >
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, minWidth: 0 }}>
         <span
           aria-label={status.label}
           style={{
@@ -50,15 +52,34 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
             borderRadius: '50%',
             background: status.color,
             boxShadow: `0 0 8px ${status.color}`,
+            flexShrink: 0,
           }}
         />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600 }}>{endpoint.label}</div>
-          <code style={{ opacity: 0.6, fontSize: 11 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {endpoint.label}
+          </div>
+          <code
+            style={{
+              opacity: 0.6,
+              fontSize: 11,
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {endpoint.method} {endpoint.url}
           </code>
         </div>
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
           {latest ? (
             <>
               <div style={{ fontSize: 18, fontWeight: 600 }}>{latest.duration_ms}ms</div>

@@ -59,9 +59,9 @@ export function MonitorList({
   }
 
   return (
-    <section style={{ display: 'grid', gap: 16 }}>
+    <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
       {groups.map(([groupName, eps]) => (
-        <div key={groupName} style={{ display: 'grid', gap: 12 }}>
+        <div key={groupName} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }}>
           {groups.length > 1 && (
             <div
               style={{
