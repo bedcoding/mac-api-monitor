@@ -12,6 +12,7 @@ let scheduler: Scheduler;
 let db: Database;
 let notifier: Notifier;
 let popoverPinned = false;
+let lastBlurHideAt = 0;
 
 const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical'>();
 
@@ -59,6 +60,7 @@ function createPopover() {
     if (popoverPinned) return;
     if (popover && !popover.webContents.isDevToolsOpened()) {
       popover.hide();
+      lastBlurHideAt = Date.now();
     }
   });
 }
@@ -151,6 +153,10 @@ function togglePopover() {
   if (popover.isVisible()) {
     popover.hide();
   } else {
+    // blur 로 방금 닫힌 직후의 트레이 클릭은 "닫기 의도" 였으므로 다시 열지 않음.
+    // 안 그러면 trayClick → blur → hide → click → show 순으로 처리되어
+    // 사용자가 닫으려고 누른 클릭이 도리어 popover 를 다시 띄움.
+    if (Date.now() - lastBlurHideAt < 250) return;
     positionPopover();
     popover.show();
     popover.focus();
@@ -160,6 +166,10 @@ function togglePopover() {
 function createTray() {
   tray = new Tray(trayIconImage());
   updateTray();
+
+  // macOS 에서 OS 가 빠른 두 클릭을 더블클릭으로 합쳐버려 click 이벤트가
+  // 한 번만 발사되는 경우가 있다. 이걸 끄면 두 클릭이 각각 click 으로 들어옴.
+  tray.setIgnoreDoubleClickEvents(true);
 
   tray.on('click', () => togglePopover());
   tray.on('right-click', () => {
@@ -323,6 +333,4 @@ ipcMain.handle('window:setPopoverHeight', (_e, height: number) => {
   const clamped = Math.max(POPOVER_MIN_HEIGHT, Math.min(POPOVER_MAX_HEIGHT, Math.round(height)));
   const [w] = popover.getSize();
   popover.setSize(w, clamped, true);
-  // 리사이즈 후 트레이 아래로 재위치
-  positionPopover();
 });

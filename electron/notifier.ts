@@ -6,11 +6,10 @@ export type Level = 'warning' | 'critical';
 interface ConsecutiveState {
   consecutive: number;
   lastFiredAt: number;
-  lastLevel: Level | null;
 }
 
 interface SlidingState {
-  window: boolean[]; // 최근 측정들: true = 임계 초과(warning/critical)
+  window: boolean[]; // 최근 측정들: true = 🔴심각 (warning은 알람 대상 아님)
   lastFiredAt: number;
 }
 
@@ -53,7 +52,7 @@ export class Notifier {
 
   /**
    * 한 사이클(전체 endpoint 1회씩) 종료 시 호출.
-   * type+group 별로 "임계 초과 endpoint 비율" 이 임계치 이상이면 그룹 알람 1건.
+   * type+group 별로 "🔴심각 endpoint 비율" 이 임계치 이상이면 그룹 알람 1건.
    */
   observeCycle(
     type: Endpoint['type'],
@@ -63,13 +62,12 @@ export class Notifier {
     if (!cfg.alarms_enabled) return;
     if (cfg.alarm_mode !== 'cycle') return;
 
-    // group 별 집계
-    const byGroup = new Map<string, { total: number; hits: number; anyCritical: boolean }>();
+    // group 별 집계 — hit = 🔴심각만 카운트. 🟡주의는 무시.
+    const byGroup = new Map<string, { total: number; hits: number }>();
     for (const r of results) {
-      const g = byGroup.get(r.group) ?? { total: 0, hits: 0, anyCritical: false };
+      const g = byGroup.get(r.group) ?? { total: 0, hits: 0 };
       g.total += 1;
-      if (r.hit) g.hits += 1;
-      if (r.level === 'critical') g.anyCritical = true;
+      if (r.level === 'critical') g.hits += 1;
       byGroup.set(r.group, g);
     }
 
@@ -84,14 +82,13 @@ export class Notifier {
       const cooldownPassed = now - prev.lastFiredAt >= cfg.alarm_cooldown_ms;
 
       if (pct >= pctThreshold && agg.hits > 0 && cooldownPassed) {
-        const fireLevel: Level = agg.anyCritical ? 'critical' : 'warning';
         this.fire({
           ts: now,
           type,
           group_name: group,
-          level: fireLevel,
-          title: `${iconFor(fireLevel)} ${group} (${type})`,
-          subtitle: `이번 사이클 ${agg.total}개 중 ${agg.hits}개 임계 초과 (${Math.round(pct)}%)`,
+          level: 'critical',
+          title: `${iconFor('critical')} ${group} (${type})`,
+          subtitle: `이번 사이클 ${agg.total}개 중 ${agg.hits}개 🔴심각 (${Math.round(pct)}%)`,
           detail: '서버 전반 이상 추정',
         });
         this.slidingState.set(key, { window: prev.window, lastFiredAt: now });
@@ -106,25 +103,15 @@ export class Notifier {
     durationMs: number,
     status: number,
   ) {
-    const prev =
-      this.consecutiveState.get(ep.id) ?? { consecutive: 0, lastFiredAt: 0, lastLevel: null };
+    const prev = this.consecutiveState.get(ep.id) ?? { consecutive: 0, lastFiredAt: 0 };
 
-    if (level === null) {
-      this.consecutiveState.set(ep.id, {
-        consecutive: 0,
-        lastFiredAt: prev.lastFiredAt,
-        lastLevel: null,
-      });
+    // 🔴심각만 알람 대상. 🟡주의/정상은 카운터 리셋.
+    if (level !== 'critical') {
+      this.consecutiveState.set(ep.id, { consecutive: 0, lastFiredAt: prev.lastFiredAt });
       return;
     }
 
-    const consecutive =
-      prev.lastLevel === level
-        ? prev.consecutive + 1
-        : level === 'critical' && prev.lastLevel === 'warning'
-          ? prev.consecutive + 1
-          : 1;
-
+    const consecutive = prev.consecutive + 1;
     const now = Date.now();
     const threshold = Math.max(1, cfg.alarm_consecutive);
     const cooldownPassed = now - prev.lastFiredAt >= cfg.alarm_cooldown_ms;
@@ -134,18 +121,14 @@ export class Notifier {
         ts: now,
         type: ep.type,
         group_name: ep.group?.trim() || '(미분류)',
-        level,
-        title: `${iconFor(level)} ${ep.label}`,
+        level: 'critical',
+        title: `${iconFor('critical')} ${ep.label}`,
         subtitle: `${ep.method} ${ep.url}`,
         detail: descFor(durationMs, status),
       });
-      this.consecutiveState.set(ep.id, { consecutive, lastFiredAt: now, lastLevel: level });
+      this.consecutiveState.set(ep.id, { consecutive, lastFiredAt: now });
     } else {
-      this.consecutiveState.set(ep.id, {
-        consecutive,
-        lastFiredAt: prev.lastFiredAt,
-        lastLevel: level,
-      });
+      this.consecutiveState.set(ep.id, { consecutive, lastFiredAt: prev.lastFiredAt });
     }
   }
 
@@ -159,7 +142,7 @@ export class Notifier {
     const key = groupKey(ep);
     const prev = this.slidingState.get(key) ?? { window: [], lastFiredAt: 0 };
 
-    const hit = level !== null; // warning/critical 둘 다 hit 로 카운트
+    const hit = level === 'critical'; // 🔴심각만 알람 대상. 🟡주의는 무시.
     const windowSize = Math.max(1, cfg.alarm_window);
     const window = [...prev.window, hit].slice(-windowSize);
 
@@ -170,14 +153,13 @@ export class Notifier {
 
     if (window.length >= windowSize && hits >= threshold && cooldownPassed) {
       const groupName = ep.group?.trim() || '(미분류)';
-      const fireLevel: Level = level === 'critical' ? 'critical' : 'warning';
       this.fire({
         ts: now,
         type: ep.type,
         group_name: groupName,
-        level: fireLevel,
-        title: `${iconFor(fireLevel)} ${groupName} (${ep.type})`,
-        subtitle: `최근 ${windowSize}회 중 ${hits}회 임계 초과`,
+        level: 'critical',
+        title: `${iconFor('critical')} ${groupName} (${ep.type})`,
+        subtitle: `최근 ${windowSize}회 중 ${hits}회 🔴심각`,
         detail: descFor(durationMs, status),
       });
       this.slidingState.set(key, { window, lastFiredAt: now });

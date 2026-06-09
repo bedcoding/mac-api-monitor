@@ -35,10 +35,10 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
   return (
     <article
       style={{
-        border: '1px solid #2a2f3a',
+        border: '1px solid #3a4150',
         borderRadius: 12,
         padding: 20,
-        background: '#1c2028',
+        background: '#2a3038',
         minWidth: 0,
         overflow: 'hidden',
       }}
@@ -120,7 +120,7 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
               />
               <YAxis stroke="#4a5568" fontSize={10} />
               <Tooltip
-                contentStyle={{ background: '#14161a', border: '1px solid #2a2f3a' }}
+                contentStyle={{ background: '#14161a', border: '1px solid #3a4150' }}
                 labelFormatter={t => new Date(Number(t)).toLocaleString('ko-KR')}
                 formatter={(v: number) => [`${v}ms`, 'duration']}
               />

@@ -36,8 +36,8 @@ export function Events({
             alignItems: 'center',
             gap: 12,
             padding: '8px 12px',
-            background: '#1c2028',
-            border: '1px solid #2a2f3a',
+            background: '#2a3038',
+            border: '1px solid #3a4150',
             borderRadius: 6,
             fontSize: 12,
           }}
@@ -101,7 +101,7 @@ function timeAgo(ts: number): string {
 const emptyStyle: React.CSSProperties = {
   padding: 48,
   textAlign: 'center',
-  border: '1px dashed #2a2f3a',
+  border: '1px dashed #3a4150',
   borderRadius: 12,
-  background: '#1c2028',
+  background: '#2a3038',
 };

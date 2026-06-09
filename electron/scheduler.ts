@@ -151,7 +151,7 @@ class Track {
               const level = classify(cc, r.durationMs, r.ok);
               cycleResults.push({
                 group: ep.group?.trim() || '(미분류)',
-                hit: level !== null,
+                hit: level === 'critical', // 🔴심각만 hit (🟡주의는 알람 무관)
                 level,
               });
             }

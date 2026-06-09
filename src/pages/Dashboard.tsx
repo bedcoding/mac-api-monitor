@@ -218,16 +218,16 @@ function groupBy(endpoints: Endpoint[]): Array<[string, Endpoint[]]> {
 }
 
 const card: React.CSSProperties = {
-  border: '1px solid #2a2f3a',
+  border: '1px solid #3a4150',
   borderRadius: 10,
   padding: 14,
-  background: '#1c2028',
+  background: '#2a3038',
 };
 
 const selectStyle: React.CSSProperties = {
   background: '#1c2028',
   color: '#e6e8ec',
-  border: '1px solid #2a2f3a',
+  border: '1px solid #3a4150',
   borderRadius: 6,
   padding: '6px 10px',
 };
@@ -242,7 +242,7 @@ const sectionTitle: React.CSSProperties = {
 const emptyStyle: React.CSSProperties = {
   padding: 48,
   textAlign: 'center',
-  border: '1px dashed #2a2f3a',
+  border: '1px dashed #3a4150',
   borderRadius: 12,
-  background: '#1c2028',
+  background: '#2a3038',
 };

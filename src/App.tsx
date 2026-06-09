@@ -120,7 +120,7 @@ function TypeToggle({
               style={{
                 width: '100%',
                 background: active ? 'rgba(59,130,246,0.15)' : '#1c2028',
-                border: `1px solid ${active ? '#3b82f6' : '#2a2f3a'}`,
+                border: `1px solid ${active ? '#3b82f6' : '#3a4150'}`,
                 color: active ? '#60a5fa' : '#8a94a6',
                 fontSize: 13,
                 fontWeight: active ? 600 : 500,
@@ -173,7 +173,7 @@ function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React
     const el = innerRef.current;
     if (!el) return;
 
-    let raf = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const send = () => {
       const contentHeight = el.scrollHeight;
       const target = Math.max(
@@ -185,14 +185,17 @@ function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React
       window.api.setPopoverHeight(target);
     };
 
+    // 탭 전환 시 빈 초기 렌더 → 데이터 로딩 후 재렌더 사이의 중간 높이를
+    // 메인 프로세스로 흘려보내지 않도록 debounce. rAF(16ms)로는 데이터 fetch가
+    // 끝난 두 번째 렌더가 따로 발사되어 깜빡임이 보였음.
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(send);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(send, 80);
     });
     observer.observe(el);
 
     return () => {
-      cancelAnimationFrame(raf);
+      if (timer) clearTimeout(timer);
       observer.disconnect();
     };
   }, []);
@@ -206,7 +209,7 @@ function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React
         background: '#1c2028',
         borderRadius: 10,
         overflow: 'hidden',
-        border: '1px solid #2a2f3a',
+        border: '1px solid #3a4150',
       }}
     >
       <header
@@ -238,7 +241,7 @@ function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle: () => void
       aria-pressed={pinned}
       style={{
         background: pinned ? '#3b82f6' : 'transparent',
-        border: `1px solid ${pinned ? '#3b82f6' : '#2a2f3a'}`,
+        border: `1px solid ${pinned ? '#3b82f6' : '#3a4150'}`,
         color: pinned ? '#fff' : '#a0aec0',
         fontSize: 12,
         padding: '4px 8px',
@@ -273,7 +276,7 @@ function ExpandButton({ onClick }: { onClick: () => void }) {
       title="전체 보기 (큰 창으로 열기)"
       style={{
         background: 'transparent',
-        border: '1px solid #2a2f3a',
+        border: '1px solid #3a4150',
         color: '#a0aec0',
         fontSize: 12,
         padding: '4px 8px',

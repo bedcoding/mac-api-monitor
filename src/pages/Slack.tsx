@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Settings as SettingsType, TypeSettings, EndpointType } from '../shared/types';
+import { AlarmCard } from './Settings';
 
 export function Slack({ type }: { type: EndpointType }) {
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -110,12 +111,9 @@ export function Slack({ type }: { type: EndpointType }) {
         </div>
       </div>
 
-      <p style={{ fontSize: 12, opacity: 0.55, margin: 0 }}>
-        이 설정은 <strong>{type === 'health' ? '헬스체크' : '기능체크'}</strong> 전용입니다. 다른
-        탭은 별도 채널/토큰을 가질 수 있습니다.
-      </p>
+      <AlarmCard cfg={cfg} onSave={save} type={type} />
 
-      {saving && <small style={{ opacity: 0.6 }}>저장 중...</small>}
+      {saving && <small style={{ opacity: 0.6, textAlign: 'center' }}>저장 중...</small>}
     </section>
   );
 }
@@ -135,7 +133,7 @@ function ModeBtn({
       aria-pressed={active}
       style={{
         background: active ? '#3b82f6' : 'transparent',
-        border: `1px solid ${active ? '#3b82f6' : '#2a2f3a'}`,
+        border: `1px solid ${active ? '#3b82f6' : '#3a4150'}`,
         color: active ? '#fff' : '#a0aec0',
         fontSize: 12,
         padding: '4px 10px',
@@ -166,8 +164,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const card: React.CSSProperties = {
-  border: '1px solid #2a2f3a',
+  border: '1px solid #3a4150',
   borderRadius: 12,
   padding: 20,
-  background: '#1c2028',
+  background: '#2a3038',
 };

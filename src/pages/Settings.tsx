@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Settings as SettingsType, TypeSettings, EndpointType } from '../shared/types';
 
 export function Settings({ onlyType }: { onlyType: EndpointType }) {
@@ -24,7 +24,6 @@ export function Settings({ onlyType }: { onlyType: EndpointType }) {
     <section style={{ display: 'grid', gap: 16, maxWidth: 900, margin: '0 auto', width: '100%' }}>
       <CycleCard cfg={cfg} endpointCount={endpointCount} onSave={save} />
       <ThresholdCard cfg={cfg} onSave={save} />
-      <AlarmCard cfg={cfg} onSave={save} />
       <RetentionCard cfg={cfg} onSave={save} />
     </section>
   );
@@ -72,8 +71,8 @@ function CycleCard({
             </Row>
             {endpointCount > 0 && (
               <p style={infoBox}>
-                등록 endpoint <strong>{endpointCount}개</strong> 기준 실질 측정 주기:{' '}
-                <strong>{Math.round(effective / 1000)}초</strong>
+                등록 endpoint {endpointCount}개 기준 실질 측정 주기:{' '}
+                {Math.round(effective / 1000)}초
                 {intervalDominated && (
                   <>
                     {' '}
@@ -108,14 +107,20 @@ function ThresholdCard({
       onSave={onSave}
       render={(draft, setDraft) => (
         <>
-          <Row label="주의 (ms)" hint="이 값 이상이면 🟡 주의 — 로그 적재.">
+          <Row
+            label="주의 (ms)"
+            hint="이 값 이상이면 🟡주의 — 대시보드/차트/로그 시각화 전용. 슬랙 알람은 발사하지 않음."
+          >
             <NumInput
               min={1}
               value={draft.warning_ms}
               onChange={v => setDraft({ ...draft, warning_ms: v })}
             />
           </Row>
-          <Row label="심각 (ms)" hint="이 값 이상이거나 호출 실패면 🔴 심각.">
+          <Row
+            label="심각 (ms)"
+            hint="이 값 이상이거나 호출 실패면 🔴심각 — 슬랙 알람의 유일한 트리거."
+          >
             <NumInput
               min={1}
               value={draft.critical_ms}
@@ -128,13 +133,38 @@ function ThresholdCard({
   );
 }
 
-function AlarmCard({
+export function AlarmCard({
   cfg,
   onSave,
+  type,
 }: {
   cfg: TypeSettings;
   onSave: (patch: Partial<TypeSettings>) => Promise<void>;
+  type: EndpointType;
 }) {
+  const [stats, setStats] = useState<{
+    total: number;
+    groups: Array<{ name: string; size: number }>;
+  }>({ total: 0, groups: [] });
+
+  useEffect(() => {
+    window.api.listEndpoints().then(eps => {
+      const mine = eps.filter(e => e.type === type);
+      const byGroup = new Map<string, number>();
+      for (const ep of mine) {
+        const g = ep.group?.trim() || '(미분류)';
+        byGroup.set(g, (byGroup.get(g) ?? 0) + 1);
+      }
+      const groups = [...byGroup.entries()]
+        .map(([name, size]) => ({ name, size }))
+        .sort((a, b) => b.size - a.size);
+      setStats({ total: mine.length, groups });
+    });
+  }, [type]);
+
+  const typeLabel = type === 'health' ? '헬스체크' : '기능체크';
+  const groupsAllSingleton = stats.groups.length > 0 && stats.groups.every(g => g.size === 1);
+
   return (
     <DraftCard
       title="알람 조건"
@@ -165,28 +195,37 @@ function AlarmCard({
             />
           </Row>
 
-          <Row label="알람 방식" hint="언제 슬랙 알람을 쏠지 판정 기준.">
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Row
+            label="알람 방식"
+            alignTop
+            hint={
+              `🔴심각 응답을 어떤 패턴으로 묶어 알람을 쏠지 결정.
+               🟡주의는 어느 방식에서도 알람 대상이 아님.
+
+               * 같은 서버 기준: '추가' 메뉴에서 입력한 group 필드`
+            }
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <ModeBtn
                 active={draft.alarm_mode === 'consecutive'}
                 onClick={() => setDraft({ ...draft, alarm_mode: 'consecutive' })}
-                hint="한 endpoint가 연속 N회 임계 초과 시 알람."
+                hint="한 API가 🔴심각을 연속 N회 기록하면 그 API 알람"
               >
-                연속 N회
+                각 API 따로 카운트
               </ModeBtn>
               <ModeBtn
                 active={draft.alarm_mode === 'cycle'}
                 onClick={() => setDraft({ ...draft, alarm_mode: 'cycle' })}
-                hint="한 사이클 안 그룹의 K% 이상 임계 초과 시 그룹 알람."
+                hint="한 사이클에 같은 서버 API의 K%가 동시에 🔴심각이면 서버 알람"
               >
-                사이클 동시
+                같은 서버 API 동시 다운
               </ModeBtn>
               <ModeBtn
                 active={draft.alarm_mode === 'sliding'}
                 onClick={() => setDraft({ ...draft, alarm_mode: 'sliding' })}
-                hint="그룹의 최근 N개 측정 중 M개 임계 초과 시 그룹 알람."
+                hint="같은 서버의 최근 N개 측정 중 🔴심각이 M번이면 서버 알람"
               >
-                시간 누적
+                같은 서버 API 누적 실패
               </ModeBtn>
             </div>
           </Row>
@@ -201,15 +240,22 @@ function AlarmCard({
                 />
               </Row>
               <p style={infoBox}>
-                한 endpoint가 연속 <strong>{draft.alarm_consecutive}회 이상</strong> 임계 초과면 그
-                endpoint 알람. 중간에 정상 응답이 한 번이라도 끼면 카운터 리셋.
+                같은 API가 연속 {draft.alarm_consecutive}회 🔴심각이면 그 API 알람 발사.
+                <br />
+                <br />
+                • 🟡주의나 🟢정상이 한 번이라도 끼면 카운터 0으로 리셋
+                <br />
+                • 다른 API의 🔴심각은 합산되지 않음
               </p>
             </>
           )}
 
           {draft.alarm_mode === 'cycle' && (
             <>
-              <Row label="사이클 내 초과 비율(%)">
+              <Row
+                label="사이클 내 🔴심각 비율(%)"
+                hint="한 사이클: 모든 API를 1회씩 호출"
+              >
                 <NumInput
                   min={1}
                   max={100}
@@ -218,9 +264,44 @@ function AlarmCard({
                 />
               </Row>
               <p style={infoBox}>
-                같은 그룹 endpoint 5개 가정. 한 사이클 동안{' '}
-                <strong>{Math.ceil((5 * draft.alarm_cycle_percent) / 100)}개 이상</strong> 임계
-                초과면 그룹 알람 1건.
+                한 사이클에서 같은 서버에 속한 API의 {draft.alarm_cycle_percent}% 이상이 🔴심각이면 그 서버 알람 발사.<br />
+                <br />
+                {stats.groups.length > 0 ? (
+                  <span style={{ opacity: 0.85 }}>
+                    {stats.groups.map(g => {
+                      const need = Math.max(1, Math.ceil((g.size * draft.alarm_cycle_percent) / 100));
+                      return (
+                        <span key={g.name}>
+                          • <code>{g.name}</code>: {g.size}개 중{' '}
+                          {need}개 이상 🔴심각 → 알람
+                          <br />
+                        </span>
+                      );
+                    })}
+                  </span>
+                ) : (
+                  <span style={{ opacity: 0.85 }}>
+                    예) 한 서버에 API 5개를 등록했고 비율을 {draft.alarm_cycle_percent}%로 두면, 한
+                    사이클에{' '}
+                    
+                      {Math.max(1, Math.ceil((5 * draft.alarm_cycle_percent) / 100))}개 이상
+                    
+                    이 동시에 🔴심각이면 그 서버 알람 1건.
+                    <br />
+                    <span style={{ opacity: 0.7 }}>
+                      * endpoint를 등록하면 본인 서버 기준 실제 임계치로 표시됩니다.
+                    </span>
+                  </span>
+                )}
+                
+                {groupsAllSingleton && (
+                  <>
+                    <br />
+                    <span style={{ color: '#fbbf24' }}>
+                      ⚠️ 현재 {typeLabel}의 모든 서버에 API가 1개씩만 등록되어 있어 이 모드는 "각 API 따로 카운트"와 사실상 동일하게 동작합니다.
+                    </span>
+                  </>
+                )}
               </p>
             </>
           )}
@@ -234,7 +315,7 @@ function AlarmCard({
                   onChange={v => setDraft({ ...draft, alarm_window: v })}
                 />
               </Row>
-              <Row label="초과 M회 시 발동">
+              <Row label="🔴심각 M회 시 발동">
                 <NumInput
                   min={1}
                   value={draft.alarm_window_hits}
@@ -242,11 +323,31 @@ function AlarmCard({
                 />
               </Row>
               <p style={infoBox}>
-                그룹 안 최근 {draft.alarm_window}회 측정 중{' '}
-                <strong>{draft.alarm_window_hits}회 이상</strong> 임계 초과면 그룹 알람 1건.
+                같은 서버 API의 최근 {draft.alarm_window}회 측정 중 {draft.alarm_window_hits}회가 🔴심각이면 그 서버 알람 발사.
+                {groupsAllSingleton && (
+                  <>
+                    <br />
+                    <br />
+                    <span style={{ color: '#fbbf24' }}>
+                      ⚠️ 현재 {typeLabel}의 모든 서버에 API가 1개씩만 등록되어 있어 이 모드는 "한
+                      API의 최근 {draft.alarm_window}회 중 {draft.alarm_window_hits}회 실패"와
+                      같습니다.
+                    </span>
+                  </>
+                )}
               </p>
             </>
           )}
+
+          <div style={guideBox}>
+            {
+              {
+                consecutive: 'API마다 다른 서버를 가리킬 때 적합 (추천: 헬스체크)',
+                cycle: '여러 API가 같은 서버를 공유할 때 적합 (추천: 기능체크)',
+                sliding: '여러 API가 같은 서버를 공유할 때 적합 (추천: 기능체크)',
+              }[draft.alarm_mode]
+            }
+          </div>
         </>
       )}
     />
@@ -326,7 +427,7 @@ function DraftCard<T extends Partial<TypeSettings>>({
           gap: 8,
           marginTop: 12,
           paddingTop: 12,
-          borderTop: '1px solid #2a2f3a',
+          borderTop: '1px solid #3a4150',
           alignItems: 'center',
         }}
       >
@@ -416,24 +517,47 @@ function ModeBtn({
   children: React.ReactNode;
   hint?: string;
 }) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const [bubbleStyle, setBubbleStyle] = useState<React.CSSProperties | undefined>();
+
+  function updatePosition() {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const TOOLTIP_MAX_W = 280;
+    const SAFE_MARGIN = 12;
+    const overflowsRight = rect.left + TOOLTIP_MAX_W > window.innerWidth - SAFE_MARGIN;
+    setBubbleStyle(overflowsRight ? { left: 'auto', right: 0 } : undefined);
+  }
+
   return (
-    <span className="tt">
+    <span
+      className="tt"
+      ref={wrapRef}
+      onMouseEnter={updatePosition}
+      style={{ display: 'block', width: '100%' }}
+    >
       <button
         onClick={onClick}
         aria-pressed={active}
         style={{
           background: active ? '#3b82f6' : 'transparent',
-          border: `1px solid ${active ? '#3b82f6' : '#2a2f3a'}`,
+          border: `1px solid ${active ? '#3b82f6' : '#3a4150'}`,
           color: active ? '#fff' : '#a0aec0',
           fontSize: 12,
-          padding: '4px 10px',
+          padding: '6px 10px',
           borderRadius: 6,
           cursor: 'pointer',
+          width: '100%',
+          textAlign: 'left',
         }}
       >
         {children}
       </button>
-      {hint && <span className="tt-bubble">{hint}</span>}
+      {hint && (
+        <span className="tt-bubble" style={bubbleStyle}>
+          {hint}
+        </span>
+      )}
     </span>
   );
 }
@@ -442,30 +566,62 @@ function Row({
   label,
   children,
   hint,
+  alignTop,
 }: {
   label: string;
   children: React.ReactNode;
   hint?: string;
+  alignTop?: boolean;
 }) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const [bubbleStyle, setBubbleStyle] = useState<React.CSSProperties | undefined>();
+
+  function updatePosition() {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const TOOLTIP_MAX_W = 280;
+    const SAFE_MARGIN = 12;
+    const overflowsRight = rect.left + TOOLTIP_MAX_W > window.innerWidth - SAFE_MARGIN;
+    setBubbleStyle(overflowsRight ? { left: 'auto', right: 0 } : undefined);
+  }
+
+  const labelStyle: React.CSSProperties = {
+    opacity: 0.8,
+    paddingTop: alignTop ? 6 : 0,
+  };
+
   return (
     <div
       style={{
         display: 'grid',
         gridTemplateColumns: '160px 1fr',
-        alignItems: 'center',
+        alignItems: alignTop ? 'flex-start' : 'center',
         gap: 12,
         marginBottom: 12,
       }}
     >
       {hint ? (
-        <span className="tt" style={{ display: 'inline-block', width: 'fit-content' }}>
-          <label style={{ opacity: 0.8, cursor: 'help', borderBottom: '1px dotted #4a5568' }}>
+        <span
+          className="tt"
+          ref={wrapRef}
+          onMouseEnter={updatePosition}
+          style={{ display: 'inline-block', width: 'fit-content' }}
+        >
+          <label
+            style={{
+              ...labelStyle,
+              cursor: 'help',
+              borderBottom: '1px dotted #4a5568',
+            }}
+          >
             {label}
           </label>
-          <span className="tt-bubble">{hint}</span>
+          <span className="tt-bubble" style={bubbleStyle}>
+            {hint}
+          </span>
         </span>
       ) : (
-        <label style={{ opacity: 0.8 }}>{label}</label>
+        <label style={labelStyle}>{label}</label>
       )}
       <div>{children}</div>
     </div>
@@ -473,10 +629,10 @@ function Row({
 }
 
 const card: React.CSSProperties = {
-  border: '1px solid #2a2f3a',
+  border: '1px solid #3a4150',
   borderRadius: 12,
   padding: 20,
-  background: '#1c2028',
+  background: '#2a3038',
 };
 
 const cardTitle: React.CSSProperties = {
@@ -492,5 +648,16 @@ const infoBox: React.CSSProperties = {
   padding: '8px 10px',
   background: '#14161a',
   borderRadius: 6,
-  border: '1px solid #2a2f3a',
+  border: '1px solid #3a4150',
+};
+
+const guideBox: React.CSSProperties = {
+  fontSize: 12,
+  padding: '8px 12px',
+  background: 'rgba(59, 130, 246, 0.1)',
+  borderLeft: '3px solid #3b82f6',
+  borderRadius: 4,
+  marginTop: 3,
+  marginBottom: 4,
+  color: '#cbd5e1',
 };
