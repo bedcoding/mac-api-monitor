@@ -211,21 +211,21 @@ export function AlarmCard({
                 onClick={() => setDraft({ ...draft, alarm_mode: 'consecutive' })}
                 hint="한 API가 🔴심각을 연속 N회 기록하면 그 API 알람"
               >
-                각 API 따로 카운트
+                각 API마다 실패 횟수 측정
               </ModeBtn>
               <ModeBtn
                 active={draft.alarm_mode === 'cycle'}
                 onClick={() => setDraft({ ...draft, alarm_mode: 'cycle' })}
-                hint="한 사이클에 같은 서버 API의 K%가 동시에 🔴심각이면 서버 알람"
+                hint="한 사이클에 같은 서버 API의 K%가 🔴심각이면 알람"
               >
-                같은 서버 API 동시 다운
+                같은 서버의 실패 비율 측정
               </ModeBtn>
               <ModeBtn
                 active={draft.alarm_mode === 'sliding'}
                 onClick={() => setDraft({ ...draft, alarm_mode: 'sliding' })}
-                hint="같은 서버의 최근 N개 측정 중 🔴심각이 M번이면 서버 알람"
+                hint="같은 서버의 최근 N개 측정 중 🔴심각이 M번이면 알람"
               >
-                같은 서버 API 누적 실패
+                같은 서버의 실패 횟수 측정
               </ModeBtn>
             </div>
           </Row>
