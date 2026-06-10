@@ -239,7 +239,8 @@ export function AlarmCard({
                   onChange={v => setDraft({ ...draft, alarm_consecutive: v })}
                 />
               </Row>
-              <p style={infoBox}>
+              <p style={{ ...infoBox, position: 'relative', paddingRight: 28 }}>
+                <ModeGuide mode={draft.alarm_mode} />
                 같은 API가 연속 {draft.alarm_consecutive}회 🔴심각이면 그 API 알람 발사.
                 <br />
                 <br />
@@ -263,7 +264,8 @@ export function AlarmCard({
                   onChange={v => setDraft({ ...draft, alarm_cycle_percent: v })}
                 />
               </Row>
-              <p style={infoBox}>
+              <p style={{ ...infoBox, position: 'relative', paddingRight: 28 }}>
+                <ModeGuide mode={draft.alarm_mode} />
                 한 사이클에서 같은 서버에 속한 API의 {draft.alarm_cycle_percent}% 이상이 🔴심각이면 그 서버 알람 발사.<br />
                 <br />
                 {stats.groups.length > 0 ? (
@@ -322,7 +324,8 @@ export function AlarmCard({
                   onChange={v => setDraft({ ...draft, alarm_window_hits: v })}
                 />
               </Row>
-              <p style={infoBox}>
+              <p style={{ ...infoBox, position: 'relative', paddingRight: 28 }}>
+                <ModeGuide mode={draft.alarm_mode} />
                 같은 서버 API의 최근 {draft.alarm_window}회 측정 중 {draft.alarm_window_hits}회가 🔴심각이면 그 서버 알람 발사.
                 {groupsAllSingleton && (
                   <>
@@ -339,15 +342,6 @@ export function AlarmCard({
             </>
           )}
 
-          <div style={guideBox}>
-            {
-              {
-                consecutive: 'API마다 다른 서버를 가리킬 때 적합 (추천: 헬스체크)',
-                cycle: '여러 API가 같은 서버를 공유할 때 적합 (추천: 기능체크)',
-                sliding: '여러 API가 같은 서버를 공유할 때 적합 (추천: 기능체크)',
-              }[draft.alarm_mode]
-            }
-          </div>
         </>
       )}
     />
@@ -651,13 +645,25 @@ const infoBox: React.CSSProperties = {
   border: '1px solid #3a4150',
 };
 
-const guideBox: React.CSSProperties = {
-  fontSize: 12,
-  padding: '8px 12px',
-  background: 'rgba(59, 130, 246, 0.1)',
-  borderLeft: '3px solid #3b82f6',
-  borderRadius: 4,
-  marginTop: 3,
-  marginBottom: 4,
-  color: '#cbd5e1',
-};
+function ModeGuide({ mode }: { mode: 'consecutive' | 'cycle' | 'sliding' }) {
+  const text = {
+    consecutive: 'API마다 다른 서버를 가리킬 때 적합 (추천: 헬스체크)',
+    cycle: '여러 API가 같은 서버 공유 시 적합 (추천: 기능체크)',
+    sliding: '여러 API가 같은 서버 공유 시 적합 (추천: 기능체크)',
+  }[mode];
+
+  return (
+    <span
+      className="tt"
+      style={{ position: 'absolute', top: 6, right: 8 }}
+    >
+      <span style={{ fontSize: 13, fontWeight: 600, cursor: 'help', opacity: 0.55 }}>ⓘ</span>
+      <span
+        className="tt-bubble"
+        style={{ left: 'auto', right: 0 }}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
