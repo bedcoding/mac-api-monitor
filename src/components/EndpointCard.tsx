@@ -11,6 +11,7 @@ interface Props {
 
 export function EndpointCard({ endpoint, measurements, settings, onRemove }: Props) {
   const [probing, setProbing] = useState(false);
+  const [cardHover, setCardHover] = useState(false);
   const latest = measurements[measurements.length - 1];
   const cfg = settings ? settings[endpoint.type] : null;
   const warning = cfg?.warning_ms ?? 3000;
@@ -34,6 +35,8 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
 
   return (
     <article
+      onMouseEnter={() => setCardHover(true)}
+      onMouseLeave={() => setCardHover(false)}
       style={{
         border: '1px solid #3a4150',
         borderRadius: 12,
@@ -55,7 +58,7 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
             flexShrink: 0,
           }}
         />
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="tt" style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
               fontWeight: 600,
@@ -78,9 +81,45 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
           >
             {endpoint.method} {endpoint.url}
           </code>
+          <span
+            className="tt-bubble"
+            style={{ maxWidth: 480, wordBreak: 'break-all', whiteSpace: 'normal' }}
+          >
+            <span style={{ fontWeight: 600 }}>{endpoint.label}</span>
+            <br />
+            {endpoint.method} {endpoint.url}
+          </span>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          {latest ? (
+        <div
+          style={{
+            textAlign: 'right',
+            flexShrink: 0,
+            minWidth: 90,
+            minHeight: 44,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'flex-end',
+          }}
+        >
+          {cardHover ? (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+              <button onClick={onProbe} disabled={probing} title="지금 측정">
+                {probing ? '...' : '↻'}
+              </button>
+              {onRemove && (
+                <button
+                  onClick={() => {
+                    if (confirm(`"${endpoint.label}" 삭제?`)) onRemove();
+                  }}
+                  title="삭제"
+                  style={{ color: '#f87171' }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ) : latest ? (
             <>
               <div style={{ fontSize: 18, fontWeight: 600 }}>{latest.duration_ms}ms</div>
               <div style={{ fontSize: 11, opacity: 0.6 }}>
@@ -92,20 +131,6 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
             <span style={{ opacity: 0.5 }}>측정 대기 중</span>
           )}
         </div>
-        <button onClick={onProbe} disabled={probing} title="지금 측정">
-          {probing ? '...' : '↻'}
-        </button>
-        {onRemove && (
-          <button
-            onClick={() => {
-              if (confirm(`"${endpoint.label}" 삭제?`)) onRemove();
-            }}
-            title="삭제"
-            style={{ color: '#f87171' }}
-          >
-            ✕
-          </button>
-        )}
       </header>
 
       {chartData.length > 1 && (

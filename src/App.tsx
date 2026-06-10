@@ -141,7 +141,7 @@ function TypeToggle({
 const HEADER_HEIGHT = 52;
 const BODY_VPAD = 28; // padding 14 × 2
 const POPOVER_MIN = 200;
-const POPOVER_MAX = 760;
+const POPOVER_MAX = 850;
 const PIN_STORAGE_KEY = 'popover.pinned';
 
 function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React.ReactNode }) {

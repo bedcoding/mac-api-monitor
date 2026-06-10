@@ -75,7 +75,7 @@ function CycleCard({
                 {Math.round(effective / 1000)}초
                 {intervalDominated && (
                   <>
-                    {' '}
+                    <br />
                     <span style={{ color: '#fbbf24' }}>
                       ⚠️ stagger × {endpointCount - 1} ={' '}
                       {Math.round(cycleSpread / 1000)}초가 측정 간격{' '}
@@ -491,7 +491,15 @@ function NumInput({
       min={min}
       max={max}
       step={step}
-      onChange={e => setText(e.target.value)}
+      onChange={e => {
+        const v = e.target.value;
+        setText(v);
+        if (v === '') return; // 입력 도중 빈 값은 무시 (blur 시 안전망에서 복원)
+        const n = Number(v);
+        if (!Number.isFinite(n)) return;
+        const next = Math.max(min, max !== undefined ? Math.min(max, n) : n);
+        if (next !== value) onChange(next);
+      }}
       onBlur={commit}
       onKeyDown={e => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

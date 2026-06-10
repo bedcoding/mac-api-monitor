@@ -19,7 +19,7 @@ const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical'>
 const POPOVER_WIDTH = 520;
 const POPOVER_HEIGHT = 620;
 const POPOVER_MIN_HEIGHT = 200;
-const POPOVER_MAX_HEIGHT = 760;
+const POPOVER_MAX_HEIGHT = 850;
 
 function rendererURL(): string {
   return process.env.VITE_DEV_SERVER_URL ?? '';
