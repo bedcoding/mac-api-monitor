@@ -21,6 +21,7 @@ export interface Measurement {
   duration_ms: number;
   status: number;
   ok: number;
+  body: string | null;
 }
 
 export interface AlarmEvent {
@@ -44,7 +45,8 @@ export interface ThresholdEvent {
   url: string;
   method: string;
   group_name: string | null;
-  level: 'warning' | 'critical';
+  level: 'healthy' | 'warning' | 'critical';
+  body: string | null;
 }
 
 export interface NewAlarmEvent {
@@ -217,6 +219,11 @@ export class Database {
     } catch {
       // already exists
     }
+    try {
+      this.db.exec(`ALTER TABLE measurements ADD COLUMN body TEXT`);
+    } catch {
+      // already exists
+    }
   }
 
   listEndpoints(): Endpoint[] {
@@ -268,9 +275,21 @@ export class Database {
   recordMeasurement(m: Omit<Measurement, 'id'>) {
     this.db
       .prepare(
-        'INSERT INTO measurements (endpoint_id, ts, duration_ms, status, ok) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO measurements (endpoint_id, ts, duration_ms, status, ok, body) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(m.endpoint_id, m.ts, m.duration_ms, m.status, m.ok);
+      .run(m.endpoint_id, m.ts, m.duration_ms, m.status, m.ok, m.body);
+  }
+
+  /** type 의 가장 최근 측정 시각. 재시작 시 측정 주기를 이어가는 용도. */
+  lastMeasurementTs(type: EndpointType): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(m.ts) AS ts
+         FROM measurements m JOIN endpoints e ON e.id = m.endpoint_id
+         WHERE e.type = ?`,
+      )
+      .get(type) as { ts: number | null };
+    return row.ts;
   }
 
   recentMeasurements(endpointId: number, hours: number): Measurement[] {
@@ -325,7 +344,7 @@ export class Database {
     return this.db
       .prepare(
         `SELECT
-           m.id, m.ts, m.duration_ms, m.status, m.ok,
+           m.id, m.ts, m.duration_ms, m.status, m.ok, m.body,
            e.id AS endpoint_id, e.label, e.url, e.method, e.group_name,
            CASE
              WHEN m.ok = 0 OR m.duration_ms >= ? THEN 'critical'
@@ -340,6 +359,67 @@ export class Database {
          LIMIT ?`,
       )
       .all(criticalMs, warningMs, type, warningMs, limit) as ThresholdEvent[];
+  }
+
+  /**
+   * endpoint 별 최근 N개 측정 (정상 포함).
+   * '이슈만 보기' 해제 시 dot 타임라인에 정상(🟢)까지 깔아주는 용도.
+   */
+  recentMeasurementsAll(
+    type: EndpointType,
+    warningMs: number,
+    criticalMs: number,
+    perEndpoint = 60,
+  ): ThresholdEvent[] {
+    return this.db
+      .prepare(
+        `SELECT id, ts, duration_ms, status, ok, body,
+                endpoint_id, label, url, method, group_name, level
+         FROM (
+           SELECT m.id, m.ts, m.duration_ms, m.status, m.ok, m.body,
+                  e.id AS endpoint_id, e.label, e.url, e.method, e.group_name,
+                  CASE
+                    WHEN m.ok = 0 OR m.duration_ms >= ? THEN 'critical'
+                    WHEN m.duration_ms >= ? THEN 'warning'
+                    ELSE 'healthy'
+                  END AS level,
+                  ROW_NUMBER() OVER (PARTITION BY m.endpoint_id ORDER BY m.ts DESC) AS rn
+           FROM measurements m
+           JOIN endpoints e ON e.id = m.endpoint_id
+           WHERE e.type = ?
+         )
+         WHERE rn <= ?
+         ORDER BY ts DESC`,
+      )
+      .all(criticalMs, warningMs, type, perEndpoint) as ThresholdEvent[];
+  }
+
+  /**
+   * 최근 N시간 동안 endpoint 별 측정 총횟수 / 임계 초과 횟수.
+   * 카드 헤더의 성공률 표시용. (전체 측정 vs 이상 측정)
+   */
+  recentEndpointStats(
+    type: EndpointType,
+    hours: number,
+    warningMs: number,
+  ): Array<{ endpoint_id: number; total: number; threshold: number }> {
+    const since = Date.now() - hours * 3600_000;
+    return this.db
+      .prepare(
+        `SELECT
+           m.endpoint_id,
+           COUNT(*) AS total,
+           SUM(CASE WHEN m.ok = 0 OR m.duration_ms >= ? THEN 1 ELSE 0 END) AS threshold
+         FROM measurements m
+         JOIN endpoints e ON e.id = m.endpoint_id
+         WHERE e.type = ? AND m.ts >= ?
+         GROUP BY m.endpoint_id`,
+      )
+      .all(warningMs, type, since) as Array<{
+      endpoint_id: number;
+      total: number;
+      threshold: number;
+    }>;
   }
 
   getSettings(): Settings {

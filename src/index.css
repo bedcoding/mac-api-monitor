@@ -100,6 +100,31 @@ code {
   background: transparent;
 }
 
+/* 클릭 가능한 URL — hover 시 링크임을 드러냄 */
+.url-link {
+  cursor: pointer;
+  opacity: 0.6;
+}
+.url-link:hover {
+  opacity: 1;
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+/* 클릭 가능한 행 — hover 시 배경 강조.
+   단 URL 링크 위에 있을 때는 행 하이라이트를 꺼서
+   "지금 클릭하면 뭐가 되는지" 신호를 한 번에 하나만 켠다. */
+.row-clickable {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.row-clickable:hover {
+  background: #333b49 !important;
+}
+.row-clickable:hover:has(.url-link:hover) {
+  background: #2a3038 !important;
+}
+
 /* 즉시 뜨는 커스텀 툴팁 (hover) */
 .tt {
   position: relative;

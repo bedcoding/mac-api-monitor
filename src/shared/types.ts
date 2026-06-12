@@ -26,6 +26,7 @@ export interface Measurement {
   duration_ms: number;
   status: number;
   ok: number;
+  body: string | null;
 }
 
 export type AlarmMode = 'consecutive' | 'sliding' | 'cycle';
@@ -80,6 +81,12 @@ export interface AlarmEvent {
   detail: string;
 }
 
+export interface EndpointStat {
+  endpoint_id: number;
+  total: number;
+  threshold: number;
+}
+
 export interface ThresholdEvent {
   id: number;
   ts: number;
@@ -91,7 +98,8 @@ export interface ThresholdEvent {
   url: string;
   method: string;
   group_name: string | null;
-  level: 'warning' | 'critical';
+  level: 'healthy' | 'warning' | 'critical';
+  body: string | null;
 }
 
 declare global {
@@ -104,6 +112,8 @@ declare global {
       recentMeasurements: (endpointId: number, hours: number) => Promise<Measurement[]>;
       recentEvents: (limit: number) => Promise<AlarmEvent[]>;
       recentThresholdExceeded: (type: EndpointType, limit: number) => Promise<ThresholdEvent[]>;
+      recentEndpointStats: (type: EndpointType, hours: number) => Promise<EndpointStat[]>;
+      recentMeasurementsAll: (type: EndpointType, perEndpoint: number) => Promise<ThresholdEvent[]>;
       testSlack: (type: EndpointType) => Promise<{ ok: boolean; message: string }>;
       getSettings: () => Promise<Settings>;
       updateSettings: (patch: SettingsPatch) => Promise<void>;
@@ -112,6 +122,7 @@ declare global {
       closePopover: () => Promise<void>;
       setPopoverPinned: (pinned: boolean) => Promise<void>;
       setPopoverHeight: (height: number) => Promise<void>;
+      openExternal: (url: string) => Promise<void>;
     };
   }
 }

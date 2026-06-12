@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, type NativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, type NativeImage } from 'electron';
 import path from 'node:path';
 import { Database, type NewEndpoint, type SettingsPatch } from './db';
 import { Scheduler, type ProbeResult } from './scheduler';
@@ -14,7 +14,7 @@ let notifier: Notifier;
 let popoverPinned = false;
 let lastBlurHideAt = 0;
 
-const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical'>();
+const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical' | 'failure'>();
 
 const POPOVER_WIDTH = 520;
 const POPOVER_HEIGHT = 620;
@@ -111,6 +111,7 @@ function trayIconImage(): NativeImage {
 
 function statusEmoji(): string {
   const statuses = Array.from(lastStatusByEndpoint.values());
+  if (statuses.some(s => s === 'failure')) return '❌';
   if (statuses.some(s => s === 'critical')) return '🔴';
   if (statuses.some(s => s === 'warning')) return '🟡';
   if (statuses.length > 0) return '🟢';
@@ -121,16 +122,18 @@ function updateTray() {
   if (!tray) return;
   const emoji = statusEmoji();
   const statuses = Array.from(lastStatusByEndpoint.values());
+  const failure = statuses.filter(s => s === 'failure').length;
   const critical = statuses.filter(s => s === 'critical').length;
   const warning = statuses.filter(s => s === 'warning').length;
 
   let title = emoji;
-  if (critical > 0) title = `${emoji}${critical}`;
+  if (failure > 0) title = `${emoji}${failure}`;
+  else if (critical > 0) title = `${emoji}${critical}`;
   else if (warning > 0) title = `${emoji}${warning}`;
 
   tray.setTitle(title);
   tray.setToolTip(
-    `API Monitor — c:${critical} w:${warning} total:${statuses.length}`,
+    `API Monitor — f:${failure} c:${critical} w:${warning} total:${statuses.length}`,
   );
 }
 
@@ -192,11 +195,12 @@ function createTray() {
   });
 }
 
-function classifyStatus(result: ProbeResult): 'healthy' | 'warning' | 'critical' {
+function classifyStatus(result: ProbeResult): 'healthy' | 'warning' | 'critical' | 'failure' {
   const s = db.getSettings();
   const ep = db.listEndpoints().find(e => e.id === result.endpointId);
   const cfg = ep?.type === 'health' ? s.health : s.feature;
-  if (!result.ok || result.durationMs >= cfg.critical_ms) return 'critical';
+  if (!result.ok) return 'failure';
+  if (result.durationMs >= cfg.critical_ms) return 'critical';
   if (result.durationMs >= cfg.warning_ms) return 'warning';
   return 'healthy';
 }
@@ -309,6 +313,18 @@ ipcMain.handle('events:thresholdExceeded', (_e, type: 'health' | 'feature', limi
   return db.recentThresholdExceeded(type, cfg.warning_ms, cfg.critical_ms, limit);
 });
 
+ipcMain.handle('measurements:recentAll', (_e, type: 'health' | 'feature', perEndpoint: number) => {
+  const s = db.getSettings();
+  const cfg = type === 'health' ? s.health : s.feature;
+  return db.recentMeasurementsAll(type, cfg.warning_ms, cfg.critical_ms, perEndpoint);
+});
+
+ipcMain.handle('endpoints:stats', (_e, type: 'health' | 'feature', hours: number) => {
+  const s = db.getSettings();
+  const cfg = type === 'health' ? s.health : s.feature;
+  return db.recentEndpointStats(type, hours, cfg.warning_ms);
+});
+
 ipcMain.handle('slack:test', (_e, type: 'health' | 'feature') => notifier.testSlack(type));
 
 ipcMain.handle('settings:get', () => db.getSettings());
@@ -321,6 +337,12 @@ ipcMain.handle('settings:update', (_e, patch: SettingsPatch) => {
 
 ipcMain.handle('probe:now', async (_e, endpointId: number) => {
   return scheduler.probeOnce(endpointId);
+});
+
+ipcMain.handle('shell:openExternal', (_e, url: string) => {
+  if (typeof url !== 'string') return;
+  if (!/^https?:\/\//i.test(url)) return;
+  shell.openExternal(url);
 });
 
 ipcMain.handle('window:openMain', () => openMainWindow());

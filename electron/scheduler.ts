@@ -108,7 +108,17 @@ class Track {
 
   start() {
     this.stopped = false;
-    this.runCycle();
+    // 재시작할 때마다 즉시 전체 측정을 쏘면 잦은 재시작(dev 모드 등)에서
+    // API 호출이 폭주한다. 마지막 측정 시각 기준으로 남은 주기만큼 기다렸다 시작.
+    const last = this.scheduler.getDb().lastMeasurementTs(this.type);
+    const elapsed = last === null ? Infinity : Date.now() - last;
+    const remaining = this.cfg().interval_ms - elapsed;
+    if (remaining <= 0) {
+      this.runCycle();
+    } else {
+      console.log(`[scheduler] ${this.type}: 직전 측정 후 ${Math.round(elapsed / 1000)}초 경과, ${Math.round(remaining / 1000)}초 뒤 사이클 시작`);
+      this.cycleTimer = setTimeout(() => this.runCycle(), remaining);
+    }
   }
 
   stop() {
@@ -193,6 +203,7 @@ async function probe(scheduler: Scheduler, ep: Endpoint): Promise<ProbeResult> {
   const start = Date.now();
   let status = 0;
   let ok = false;
+  let body: string | null = null;
 
   const timeoutMs = Math.max(cfg.critical_ms * 2, 10_000);
   const ac = new AbortController();
@@ -202,8 +213,35 @@ async function probe(scheduler: Scheduler, ep: Endpoint): Promise<ProbeResult> {
     const res = await fetch(ep.url, { method: ep.method, signal: ac.signal });
     status = res.status;
     ok = res.ok;
-  } catch {
+    // 200 OK 가 아닐 때만 본문 저장 (4xx/5xx 디버깅 단서).
+    // 본문은 앞 2KB 만, PII/토큰 등 저장 위험을 줄임.
+    if (!ok) {
+      try {
+        body = (await res.text()).slice(0, 2048);
+      } catch {
+        body = null;
+      }
+    }
+  } catch (e) {
     ok = false;
+    // fetch 자체가 throw 한 경우 (timeout/DNS/연결 거부 등). 에러 메시지를 단서로 저장.
+    if (ac.signal.aborted) {
+      body = `응답시간 초과 (${timeoutMs}ms)`;
+    } else {
+      // undici 는 겉으로 'fetch failed' 만 던지고 진짜 원인(ENOTFOUND 등)은 cause 에 숨김
+      let msg = e instanceof Error ? e.message : String(e);
+      if (e instanceof Error && e.cause) {
+        const c = e.cause;
+        const detail =
+          c instanceof AggregateError && c.errors.length
+            ? c.errors.map(x => (x instanceof Error ? x.message : String(x))).join(', ')
+            : c instanceof Error
+              ? c.message
+              : String(c);
+        if (detail) msg += ` (${detail})`;
+      }
+      body = msg.slice(0, 2048);
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -216,6 +254,7 @@ async function probe(scheduler: Scheduler, ep: Endpoint): Promise<ProbeResult> {
     duration_ms: durationMs,
     status,
     ok: ok ? 1 : 0,
+    body,
   });
 
   const level = classify(cfg, durationMs, ok);

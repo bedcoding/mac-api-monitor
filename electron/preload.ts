@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('api', {
   recentEvents: (limit: number) => ipcRenderer.invoke('events:recent', limit),
   recentThresholdExceeded: (type: 'health' | 'feature', limit: number) =>
     ipcRenderer.invoke('events:thresholdExceeded', type, limit),
+  recentEndpointStats: (type: 'health' | 'feature', hours: number) =>
+    ipcRenderer.invoke('endpoints:stats', type, hours),
+  recentMeasurementsAll: (type: 'health' | 'feature', perEndpoint: number) =>
+    ipcRenderer.invoke('measurements:recentAll', type, perEndpoint),
   testSlack: (type: 'health' | 'feature') => ipcRenderer.invoke('slack:test', type),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: unknown) => ipcRenderer.invoke('settings:update', patch),
@@ -21,4 +25,5 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('window:setPopoverPinned', pinned),
   setPopoverHeight: (height: number) =>
     ipcRenderer.invoke('window:setPopoverHeight', height),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });

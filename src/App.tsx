@@ -41,7 +41,7 @@ export function App() {
   };
 
   const body = (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
       <TypeToggle type={type} onChange={setType} />
       {action === 'monitor' && (
         <MonitorList refreshKey={refreshKey} filterType={type} onChange={bump} />
@@ -227,7 +227,7 @@ function PopoverShell({ nav, children }: { nav: React.ReactNode; children: React
       </header>
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 12px 12px', minWidth: 0 }}>
-        <div ref={innerRef}>{children}</div>
+        <div ref={innerRef} style={{ minWidth: 0 }}>{children}</div>
       </div>
     </div>
   );
