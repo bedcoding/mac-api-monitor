@@ -126,6 +126,8 @@ export function Events({
   const [modalEv, setModalEv] = useState<ThresholdEvent | null>(null);
   // API 타임라인 모달 (카드 클릭 시 해당 API 의 최근 24시간 측정 전체)
   const [timelineGroup, setTimelineGroup] = useState<ApiGroup | null>(null);
+  // 서버 타임라인 모달 (서버별 dot 박스 클릭 시 그 서버 전체 API 통합 타임라인)
+  const [serverTimeline, setServerTimeline] = useState<ServerGroup | null>(null);
 
   // 시간순 탭은 이슈 로그 성격이라 항상 이슈만. 정상 포함은 dot 타임라인 탭에서만.
   const wantAll = !issuesOnly && view !== 'time';
@@ -180,13 +182,25 @@ export function Events({
           onOpenTimeline={setTimelineGroup}
         />
       ) : (
-        <ServerMergedView events={events} statsMap={statsMap} onOpenBody={setModalEv} />
+        <ServerMergedView
+          events={events}
+          statsMap={statsMap}
+          onOpenBody={setModalEv}
+          onOpenServerTimeline={setServerTimeline}
+        />
       )}
       {timelineGroup && (
         <TimelineModal
           group={timelineGroup}
           type={filterType}
           onClose={() => setTimelineGroup(null)}
+          onOpenBody={setModalEv}
+        />
+      )}
+      {serverTimeline && (
+        <ServerTimelineModal
+          server={serverTimeline}
+          onClose={() => setServerTimeline(null)}
           onOpenBody={setModalEv}
         />
       )}
@@ -460,7 +474,6 @@ function ApiCard({
   // group.events 는 최신순(ts DESC). 최근 N개를 자른 뒤 뒤집어 왼쪽=과거, 오른쪽=최신.
   // 표시 개수는 한 줄 dot 수의 배수로 잘라 마지막 줄을 꽉 채운다.
   const visible = group.events.slice(0, dotCap(perRow, MAX_DOTS_PER_API)).reverse();
-  const more = group.events.length - visible.length;
   const last = group.events[0];
   const failureCount = group.events.filter(e => categorize(e) === 'failure').length;
   const criticalCount = group.events.filter(e => categorize(e) === 'critical').length;
@@ -468,9 +481,6 @@ function ApiCard({
 
   return (
     <div
-      className="row-clickable"
-      onClick={() => onOpenTimeline(group)}
-      title="클릭해서 최근 24시간 타임라인 보기"
       style={{
         background: '#2a3038',
         border: '1px solid #3a4150',
@@ -550,9 +560,16 @@ function ApiCard({
           padding: '8px 10px',
         }}
       >
-        {more > 0 && (
-          <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 6 }}>+{more}건</div>
-        )}
+        <div style={{ marginBottom: 6 }}>
+          <span
+            className="more-link"
+            onClick={() => onOpenTimeline(group)}
+            title="클릭해서 이 API의 최근 측정 전체 보기"
+            style={{ fontSize: 10 }}
+          >
+            전체 보기
+          </span>
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: DOT_GAP }}>
           {visible.map((ev, i) => (
             <DotEvent
@@ -620,29 +637,36 @@ function DotEvent({
   onOpenBody: (ev: ThresholdEvent) => void;
 }) {
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const [hovered, setHovered] = useState(false);
   const [bubbleStyle, setBubbleStyle] = useState<React.CSSProperties>({
-    top: 'auto',
-    bottom: 'calc(100% + 6px)',
+    position: 'fixed',
     wordBreak: 'break-all',
   });
   const cat = categorize(ev);
   const color = CATEGORY_COLOR[cat];
-  const hasBody = ev.body !== null;
 
+  // dot 이 수백~수천 개 깔리는 모달에서 tt-bubble 본문을 항상 DOM 에 두면
+  // 노드 수가 5~6배로 불어난다. hover 한 dot 만 본문을 렌더.
+  // 툴팁은 position:fixed 로 viewport 기준에 띄운다 — 모달 본문의 overflow:auto 에
+  // 갇혀 잘리는 걸 막는다. dot 위치는 getBoundingClientRect 로 잡아 좌표를 정한다.
   const onEnter = () => {
+    setHovered(true);
     const el = wrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const BUBBLE_WIDTH = 280;
-    const BUBBLE_HEIGHT = 160;
+    const BUBBLE_HEIGHT = 170;
     const SAFE = 8;
     const overflowsRight = rect.left + BUBBLE_WIDTH > window.innerWidth - SAFE;
     const overflowsTop = rect.top < BUBBLE_HEIGHT + SAFE;
     setBubbleStyle({
+      position: 'fixed',
       ...(overflowsTop
-        ? { top: 'calc(100% + 6px)', bottom: 'auto' }
-        : { top: 'auto', bottom: 'calc(100% + 6px)' }),
-      ...(overflowsRight ? { left: 'auto', right: 0 } : {}),
+        ? { top: rect.bottom + 6, bottom: 'auto' }
+        : { top: 'auto', bottom: window.innerHeight - rect.top + 6 }),
+      ...(overflowsRight
+        ? { left: 'auto', right: window.innerWidth - rect.right }
+        : { left: rect.left, right: 'auto' }),
       wordBreak: 'break-all',
     });
   };
@@ -652,11 +676,10 @@ function DotEvent({
       ref={wrapRef}
       className="tt"
       onMouseEnter={onEnter}
+      onMouseLeave={() => setHovered(false)}
       onClick={e => {
-        if (hasBody) {
-          e.stopPropagation();
-          onOpenBody(ev);
-        }
+        e.stopPropagation();
+        onOpenBody(ev);
       }}
       style={{ lineHeight: 0 }}
     >
@@ -670,7 +693,9 @@ function DotEvent({
             fontSize: 12,
             lineHeight: '14px',
             textAlign: 'center',
-            cursor: hasBody ? 'pointer' : 'help',
+            cursor: 'pointer',
+            transform: hovered ? 'scale(1.45)' : 'scale(1)',
+            transition: 'transform 0.12s ease-out',
           }}
         >
           ❌
@@ -684,58 +709,118 @@ function DotEvent({
             height: 14,
             borderRadius: '50%',
             background: color,
-            cursor: hasBody ? 'pointer' : 'help',
-            boxShadow: `0 0 4px ${color}55`,
+            cursor: 'pointer',
+            boxShadow: hovered ? `0 0 9px ${color}, 0 0 3px ${color}` : `0 0 4px ${color}55`,
+            transform: hovered ? 'scale(1.35)' : 'scale(1)',
+            transition: 'transform 0.12s ease-out, box-shadow 0.12s ease-out',
           }}
         />
       )}
-      <span className="tt-bubble" style={bubbleStyle}>
-        {showLabel && (
-          <>
-            <span style={{ fontWeight: 600 }}>{ev.label}</span>
-            <br />
-          </>
-        )}
-        {fullDate(ev.ts)}
-        <br />
-        {cat === 'failure' ? (
-          <>
-            ❌실패{ev.status > 0 && ` · HTTP ${ev.status}`} · {ev.duration_ms}ms
-          </>
-        ) : (
-          <>
-            {CATEGORY_EMOJI[cat]}
-            {CATEGORY_LABEL[cat]} · HTTP {ev.status} · {ev.duration_ms}ms
-          </>
-        )}
-        {prevTs !== undefined && (
-          <>
-            <br />
-            <span style={{ opacity: 0.6 }}>
+      {hovered && (
+        <span className="tt-bubble" style={bubbleStyle}>
+          {showLabel && <div style={{ fontWeight: 600 }}>{ev.label}</div>}
+          <div>{fullDate(ev.ts)}</div>
+          <div>
+            {cat === 'failure' ? (
+              <>
+                ❌실패{ev.status > 0 && ` · HTTP ${ev.status}`} · {ev.duration_ms}ms
+              </>
+            ) : (
+              <>
+                {CATEGORY_EMOJI[cat]}
+                {CATEGORY_LABEL[cat]} · HTTP {ev.status} · {ev.duration_ms}ms
+              </>
+            )}
+          </div>
+          {prevTs !== undefined && (
+            <div
+              style={{
+                marginTop: 6,
+                paddingTop: 6,
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                opacity: 0.6,
+              }}
+            >
               이 {showLabel ? '서버' : 'API'}의 직전 기록과 간격 {formatGap(ev.ts - prevTs)}
-            </span>
-          </>
-        )}
-        {ev.body && (
-          <>
-            <br />
-            <span style={{ opacity: 0.75, fontSize: 11 }}>
-              {ev.body.length > 200 ? `${ev.body.slice(0, 200)}…` : ev.body}
-            </span>
-          </>
-        )}
-        {hasBody && (
-          <>
-            <br />
-            <span style={{ opacity: 0.5, fontSize: 10 }}>클릭해서 전체 응답 보기</span>
-          </>
-        )}
-      </span>
+            </div>
+          )}
+        </span>
+      )}
     </span>
   );
 }
 
-const TIMELINE_HOURS = 24;
+// 단일 API 모달이 가져올 측정 수 상한(개수 기준). 페이지로 나눠 그리므로 넉넉히.
+const MODAL_FETCH_LIMIT = 2000;
+// 모달에서 한 페이지에 그릴 dot 수. 측정이 많아도 한 페이지만 렌더해 가볍게 유지.
+const PAGE_SIZE = 240;
+
+/**
+ * 모달 안의 dot 타임라인을 페이지로 나눠 그린다.
+ * events 는 ts ASC(과거→최신). 최신 측정이 마지막 페이지라 모달을 열면 최신부터 보이고,
+ * '이전' 으로 과거를 거슬러 본다. '직전 기록과 간격' 은 페이지가 아니라 전체 배열 인덱스
+ * 기준으로 계산해 페이지 경계에서도 간격이 끊기지 않는다.
+ */
+function PagedDots({
+  events,
+  showLabel,
+  onOpenBody,
+}: {
+  events: ThresholdEvent[];
+  showLabel?: boolean;
+  onOpenBody: (ev: ThresholdEvent) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(events.length / PAGE_SIZE));
+  const [page, setPage] = useState(totalPages - 1);
+  const p = Math.min(Math.max(0, page), totalPages - 1);
+  const start = p * PAGE_SIZE;
+  const slice = events.slice(start, start + PAGE_SIZE);
+
+  return (
+    <div>
+      {totalPages > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            marginBottom: 10,
+            fontSize: 11,
+          }}
+        >
+          <button onClick={() => setPage(p - 1)} disabled={p === 0} style={{ padding: '2px 10px' }}>
+            ‹ 이전
+          </button>
+          <span style={{ opacity: 0.6, minWidth: 96, textAlign: 'center' }}>
+            {p + 1} / {totalPages} 페이지
+          </span>
+          <button
+            onClick={() => setPage(p + 1)}
+            disabled={p >= totalPages - 1}
+            style={{ padding: '2px 10px' }}
+          >
+            다음 ›
+          </button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: DOT_GAP }}>
+        {slice.map((ev, i) => {
+          const globalIdx = start + i;
+          return (
+            <DotEvent
+              key={ev.id}
+              ev={ev}
+              showLabel={showLabel}
+              prevTs={globalIdx > 0 ? events[globalIdx - 1].ts : undefined}
+              onOpenBody={onOpenBody}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function TimelineModal({
   group,
@@ -752,7 +837,7 @@ function TimelineModal({
 
   useEffect(() => {
     Promise.all([
-      window.api.recentMeasurements(group.endpointId, TIMELINE_HOURS),
+      window.api.recentMeasurements(group.endpointId, MODAL_FETCH_LIMIT),
       window.api.getSettings(),
     ]).then(([ms, settings]) => {
       const cfg = settings[type];
@@ -837,7 +922,7 @@ function TimelineModal({
               {group.label}
             </div>
             <div style={{ fontSize: 10, opacity: 0.6, marginTop: 2 }}>
-              최근 {TIMELINE_HOURS}시간 측정 {events ? `${events.length}회` : '...'}
+              최근 측정 {events ? `${events.length}회` : '...'}
               {' · '}
               <code style={{ fontSize: 10 }}>
                 {group.method} {group.url}
@@ -848,22 +933,120 @@ function TimelineModal({
             ✕
           </button>
         </div>
-        <div style={{ padding: '10px 12px', overflowY: 'auto' }}>
+        <div style={{ padding: '10px 12px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
           {events === null ? (
             <div style={{ fontSize: 11, opacity: 0.5 }}>불러오는 중...</div>
           ) : events.length === 0 ? (
-            <div style={{ fontSize: 11, opacity: 0.5 }}>최근 {TIMELINE_HOURS}시간 측정 기록이 없습니다</div>
+            <div style={{ fontSize: 11, opacity: 0.5 }}>측정 기록이 없습니다</div>
           ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: DOT_GAP }}>
-              {events.map((ev, i) => (
-                <DotEvent
-                  key={ev.id}
-                  ev={ev}
-                  prevTs={i > 0 ? events[i - 1].ts : undefined}
-                  onOpenBody={onOpenBody}
-                />
-              ))}
+            <PagedDots events={events} onOpenBody={onOpenBody} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ServerTimelineModal({
+  server,
+  onClose,
+  onOpenBody,
+}: {
+  server: ServerGroup;
+  onClose: () => void;
+  onOpenBody: (ev: ThresholdEvent) => void;
+}) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  // server.events 는 메인 화면이 이미 들고 있는 측정(ts DESC, level 채워짐).
+  // 추가 fetch 없이 그걸 그대로 펼친다 — 메인이 cap 으로 잘라 보여준 걸 모달은 전부.
+  // ts ASC(왼쪽=과거) 로 뒤집고, 많으면 PagedDots 가 페이지로 나눠 그린다.
+  const total = server.events.length;
+  const events = useMemo(() => server.events.slice().reverse(), [server.events]);
+
+  const { failure, critical, warning } = useMemo(
+    () => ({
+      failure: events.filter(e => categorize(e) === 'failure').length,
+      critical: events.filter(e => categorize(e) === 'critical').length,
+      warning: events.filter(e => categorize(e) === 'warning').length,
+    }),
+    [events],
+  );
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.6)',
+        zIndex: 1900,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 12,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#2a3038',
+          border: '1px solid #3a4150',
+          borderRadius: 10,
+          width: '100%',
+          maxHeight: '90%',
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+          lineHeight: 1.5,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 12px',
+            borderBottom: '1px solid #3a4150',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {server.name}
             </div>
+            <div style={{ fontSize: 10, marginTop: 2 }}>
+              <span style={{ opacity: 0.6 }}>
+                API {server.apis.length}개 · 측정 {total}회
+              </span>
+              {(failure > 0 || critical > 0 || warning > 0) && (
+                <>
+                  <span style={{ opacity: 0.4 }}>{' · '}</span>
+                  <CountBadges failure={failure} critical={critical} warning={warning} />
+                </>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ flexShrink: 0, padding: '2px 8px' }}>
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: '10px 12px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
+          {events.length === 0 ? (
+            <div style={{ fontSize: 11, opacity: 0.5 }}>측정 기록이 없습니다</div>
+          ) : (
+            <PagedDots events={events} showLabel onOpenBody={onOpenBody} />
           )}
         </div>
       </div>
@@ -900,7 +1083,7 @@ function BodyModal({ ev, onClose }: { ev: ThresholdEvent; onClose: () => void })
           background: '#2a3038',
           border: '1px solid #3a4150',
           borderRadius: 10,
-          maxWidth: '100%',
+          width: '100%',
           maxHeight: '85%',
           display: 'flex',
           flexDirection: 'column',
@@ -930,29 +1113,40 @@ function BodyModal({ ev, onClose }: { ev: ThresholdEvent; onClose: () => void })
               {ev.label}
             </div>
             <div style={{ fontSize: 10, opacity: 0.6, marginTop: 2 }}>
-              {fullDate(ev.ts)} · {CATEGORY_EMOJI[cat]}
-              {CATEGORY_LABEL[cat]}
-              {ev.status > 0 && ` · HTTP ${ev.status}`} · {ev.duration_ms}ms
+              <div>{fullDate(ev.ts)}</div>
+              <div>
+                {CATEGORY_EMOJI[cat]}
+                {CATEGORY_LABEL[cat]}
+                {ev.status > 0 && ` · HTTP ${ev.status}`} · {ev.duration_ms}ms
+              </div>
             </div>
           </div>
           <button onClick={onClose} style={{ flexShrink: 0, padding: '2px 8px' }}>
             ✕
           </button>
         </div>
-        <pre
-          style={{
-            margin: 0,
-            padding: '10px 12px',
-            fontSize: 11,
-            fontFamily: "'SF Mono', Menlo, monospace",
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            overflow: 'auto',
-            opacity: 0.9,
-          }}
-        >
-          {ev.body || '응답 본문이 비어있음'}
-        </pre>
+        {ev.body ? (
+          <pre
+            style={{
+              margin: 0,
+              padding: '10px 12px',
+              fontSize: 11,
+              fontFamily: "'SF Mono', Menlo, monospace",
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              overflow: 'auto',
+              opacity: 0.9,
+              flex: '1 1 auto',
+              minHeight: 0,
+            }}
+          >
+            {ev.body}
+          </pre>
+        ) : (
+          <div style={{ padding: '12px', fontSize: 11, opacity: 0.5 }}>
+            * 호출 실패한 경우에만 본문을 보관합니다
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1127,10 +1321,12 @@ function ServerMergedView({
   events,
   statsMap,
   onOpenBody,
+  onOpenServerTimeline,
 }: {
   events: ThresholdEvent[];
   statsMap: Map<number, EndpointStat>;
   onOpenBody: (ev: ThresholdEvent) => void;
+  onOpenServerTimeline: (s: ServerGroup) => void;
 }) {
   const servers = useMemo(() => groupByServer(events), [events]);
   return (
@@ -1141,6 +1337,7 @@ function ServerMergedView({
           server={server}
           statsMap={statsMap}
           onOpenBody={onOpenBody}
+          onOpenServerTimeline={onOpenServerTimeline}
         />
       ))}
     </div>
@@ -1151,10 +1348,12 @@ function ServerMergedSection({
   server,
   statsMap,
   onOpenBody,
+  onOpenServerTimeline,
 }: {
   server: ServerGroup;
   statsMap: Map<number, EndpointStat>;
   onOpenBody: (ev: ThresholdEvent) => void;
+  onOpenServerTimeline: (s: ServerGroup) => void;
 }) {
   const dotBoxRef = useRef<HTMLDivElement>(null);
   const perRow = useDotsPerRow(dotBoxRef, 24);
@@ -1162,7 +1361,6 @@ function ServerMergedSection({
   // events 는 최신순(ts DESC). 최근 N개를 자른 뒤 뒤집어 왼쪽=과거, 오른쪽=최신.
   // 표시 개수는 한 줄 dot 수의 배수로 잘라 마지막 줄을 꽉 채운다.
   const visible = server.events.slice(0, dotCap(perRow, MAX_DOTS_PER_SERVER)).reverse();
-  const more = server.events.length - visible.length;
 
   return (
     <section aria-labelledby={headingId}>
@@ -1176,9 +1374,16 @@ function ServerMergedSection({
           padding: '10px 12px',
         }}
       >
-        {more > 0 && (
-          <div style={{ fontSize: 10, opacity: 0.5, marginBottom: 6 }}>+{more}건</div>
-        )}
+        <div style={{ marginBottom: 6 }}>
+          <span
+            className="more-link"
+            onClick={() => onOpenServerTimeline(server)}
+            title="클릭해서 이 서버의 최근 측정 전체 보기"
+            style={{ fontSize: 10 }}
+          >
+            전체 보기
+          </span>
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: DOT_GAP }}>
           {visible.map((ev, i) => (
             <DotEvent

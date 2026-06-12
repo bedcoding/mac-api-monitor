@@ -6,9 +6,10 @@ contextBridge.exposeInMainWorld('api', {
   removeEndpoint: (id: number) => ipcRenderer.invoke('endpoints:remove', id),
   importEndpoints: (json: string, forceType?: string) =>
     ipcRenderer.invoke('endpoints:import', json, forceType),
-  recentMeasurements: (endpointId: number, hours: number) =>
-    ipcRenderer.invoke('measurements:recent', endpointId, hours),
-  recentEvents: (limit: number) => ipcRenderer.invoke('events:recent', limit),
+  recentMeasurements: (endpointId: number, limit: number) =>
+    ipcRenderer.invoke('measurements:recent', endpointId, limit),
+  recentEvents: (type: 'health' | 'feature', limit: number) =>
+    ipcRenderer.invoke('events:recent', type, limit),
   recentThresholdExceeded: (type: 'health' | 'feature', limit: number) =>
     ipcRenderer.invoke('events:thresholdExceeded', type, limit),
   recentEndpointStats: (type: 'health' | 'feature', hours: number) =>

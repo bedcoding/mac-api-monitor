@@ -301,11 +301,13 @@ ipcMain.handle('endpoints:import', (_e, json: string, forceType?: string) => {
   return db.addEndpointsBulk(eps);
 });
 
-ipcMain.handle('measurements:recent', (_e, endpointId: number, hours: number) =>
-  db.recentMeasurements(endpointId, hours),
+ipcMain.handle('measurements:recent', (_e, endpointId: number, limit: number) =>
+  db.recentMeasurements(endpointId, limit),
 );
 
-ipcMain.handle('events:recent', (_e, limit: number) => db.recentAlarmEvents(limit));
+ipcMain.handle('events:recent', (_e, type: 'health' | 'feature', limit: number) =>
+  db.recentAlarmEvents(type, limit),
+);
 
 ipcMain.handle('events:thresholdExceeded', (_e, type: 'health' | 'feature', limit: number) => {
   const s = db.getSettings();

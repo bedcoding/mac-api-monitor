@@ -24,6 +24,8 @@ export interface Measurement {
   body: string | null;
 }
 
+export type SlackStatus = 'sent' | 'failed' | 'skipped';
+
 export interface AlarmEvent {
   id: number;
   ts: number;
@@ -32,6 +34,8 @@ export interface AlarmEvent {
   level: 'warning' | 'critical';
   title: string;
   detail: string;
+  slack_status: SlackStatus | null;
+  slack_error: string | null;
 }
 
 export interface ThresholdEvent {
@@ -56,6 +60,8 @@ export interface NewAlarmEvent {
   level: 'warning' | 'critical';
   title: string;
   detail: string;
+  slack_status?: SlackStatus | null;
+  slack_error?: string | null;
 }
 
 export type AlarmMode = 'consecutive' | 'sliding' | 'cycle';
@@ -207,7 +213,9 @@ export class Database {
         group_name TEXT NOT NULL,
         level TEXT NOT NULL,
         title TEXT NOT NULL,
-        detail TEXT NOT NULL
+        detail TEXT NOT NULL,
+        slack_status TEXT,
+        slack_error TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_alarm_events_ts
         ON alarm_events(ts DESC);
@@ -221,6 +229,17 @@ export class Database {
     }
     try {
       this.db.exec(`ALTER TABLE measurements ADD COLUMN body TEXT`);
+    } catch {
+      // already exists
+    }
+    // 슬랙 전송 결과 기록용 컬럼 (기존 DB 호환)
+    try {
+      this.db.exec(`ALTER TABLE alarm_events ADD COLUMN slack_status TEXT`);
+    } catch {
+      // already exists
+    }
+    try {
+      this.db.exec(`ALTER TABLE alarm_events ADD COLUMN slack_error TEXT`);
     } catch {
       // already exists
     }
@@ -292,13 +311,16 @@ export class Database {
     return row.ts;
   }
 
-  recentMeasurements(endpointId: number, hours: number): Measurement[] {
-    const since = Date.now() - hours * 3600_000;
+  recentMeasurements(endpointId: number, limit: number): Measurement[] {
+    // 최근 limit 개를 ts ASC(과거→최신) 로 반환. 측정 주기와 무관하게 "개수" 로 끊어
+    // 타임라인 모달이 주기가 길든 짧든 일정 분량을 보여주게 한다.
     return this.db
       .prepare(
-        'SELECT * FROM measurements WHERE endpoint_id = ? AND ts >= ? ORDER BY ts',
+        `SELECT * FROM (
+           SELECT * FROM measurements WHERE endpoint_id = ? ORDER BY ts DESC LIMIT ?
+         ) ORDER BY ts ASC`,
       )
-      .all(endpointId, since) as Measurement[];
+      .all(endpointId, limit) as Measurement[];
   }
 
   pruneOldByType(type: EndpointType, retentionDays: number): number {
@@ -319,15 +341,25 @@ export class Database {
   recordAlarmEvent(e: NewAlarmEvent) {
     this.db
       .prepare(
-        'INSERT INTO alarm_events (ts, type, group_name, level, title, detail) VALUES (?, ?, ?, ?, ?, ?)',
+        `INSERT INTO alarm_events (ts, type, group_name, level, title, detail, slack_status, slack_error)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(e.ts, e.type, e.group_name, e.level, e.title, e.detail);
+      .run(
+        e.ts,
+        e.type,
+        e.group_name,
+        e.level,
+        e.title,
+        e.detail,
+        e.slack_status ?? null,
+        e.slack_error ?? null,
+      );
   }
 
-  recentAlarmEvents(limit = 100): AlarmEvent[] {
+  recentAlarmEvents(type: EndpointType, limit = 200): AlarmEvent[] {
     return this.db
-      .prepare('SELECT * FROM alarm_events ORDER BY ts DESC LIMIT ?')
-      .all(limit) as AlarmEvent[];
+      .prepare('SELECT * FROM alarm_events WHERE type = ? ORDER BY ts DESC LIMIT ?')
+      .all(type, limit) as AlarmEvent[];
   }
 
   /**

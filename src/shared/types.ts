@@ -71,6 +71,8 @@ export interface ProbeResult {
   ok: boolean;
 }
 
+export type SlackStatus = 'sent' | 'failed' | 'skipped';
+
 export interface AlarmEvent {
   id: number;
   ts: number;
@@ -79,6 +81,8 @@ export interface AlarmEvent {
   level: 'warning' | 'critical';
   title: string;
   detail: string;
+  slack_status: SlackStatus | null;
+  slack_error: string | null;
 }
 
 export interface EndpointStat {
@@ -109,8 +113,8 @@ declare global {
       addEndpoint: (ep: NewEndpoint) => Promise<number>;
       removeEndpoint: (id: number) => Promise<void>;
       importEndpoints: (json: string, forceType?: EndpointType) => Promise<number>;
-      recentMeasurements: (endpointId: number, hours: number) => Promise<Measurement[]>;
-      recentEvents: (limit: number) => Promise<AlarmEvent[]>;
+      recentMeasurements: (endpointId: number, limit: number) => Promise<Measurement[]>;
+      recentEvents: (type: EndpointType, limit: number) => Promise<AlarmEvent[]>;
       recentThresholdExceeded: (type: EndpointType, limit: number) => Promise<ThresholdEvent[]>;
       recentEndpointStats: (type: EndpointType, hours: number) => Promise<EndpointStat[]>;
       recentMeasurementsAll: (type: EndpointType, perEndpoint: number) => Promise<ThresholdEvent[]>;

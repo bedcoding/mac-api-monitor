@@ -1,5 +1,5 @@
 import { Notification } from 'electron';
-import type { Database, Endpoint, Settings, TypeSettings } from './db';
+import type { Database, Endpoint, Settings, TypeSettings, SlackStatus } from './db';
 
 export type Level = 'warning' | 'critical';
 
@@ -168,7 +168,7 @@ export class Notifier {
     }
   }
 
-  private fire(e: {
+  private async fire(e: {
     ts: number;
     type: Endpoint['type'];
     group_name: string;
@@ -184,7 +184,9 @@ export class Notifier {
     }
 
     const text = `${e.title}\n\`${e.subtitle}\`\n${e.detail}`;
-    this.sendSlack(e.type, text);
+    // 슬랙 전송 결과(전송/실패/미설정)를 기다렸다가 알람 내역에 같이 남긴다.
+    // 예전엔 결과를 console 로만 흘려 "보냈는지조차" 알 수 없었다.
+    const slack = await this.sendSlack(e.type, text);
 
     try {
       this.db.recordAlarmEvent({
@@ -194,6 +196,8 @@ export class Notifier {
         level: e.level,
         title: e.title,
         detail: `${e.subtitle} · ${e.detail}`,
+        slack_status: slack.status,
+        slack_error: slack.error,
       });
     } catch (err) {
       console.warn('[notifier] event record failed:', err);
@@ -239,30 +243,47 @@ export class Notifier {
     }
   }
 
-  private sendSlack(type: Endpoint['type'], text: string) {
+  private async sendSlack(
+    type: Endpoint['type'],
+    text: string,
+  ): Promise<{ status: SlackStatus; error: string | null }> {
     const s = type === 'health' ? this.settings.health : this.settings.feature;
-    if (s.slack_mode === 'bot') {
-      if (!s.slack_bot_token || !s.slack_channel) return;
-      fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          Authorization: `Bearer ${s.slack_bot_token}`,
-        },
-        body: JSON.stringify({ channel: s.slack_channel, text }),
-      })
-        .then(r => r.json())
-        .then((j: { ok?: boolean; error?: string }) => {
-          if (!j.ok) console.warn('[notifier] slack bot api error:', j.error);
-        })
-        .catch(err => console.warn('[notifier] slack bot failed:', err?.message ?? err));
-    } else {
-      if (!s.slack_webhook_url) return;
-      fetch(s.slack_webhook_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      }).catch(err => console.warn('[notifier] slack webhook failed:', err?.message ?? err));
+    try {
+      if (s.slack_mode === 'bot') {
+        if (!s.slack_bot_token || !s.slack_channel) {
+          return { status: 'skipped', error: 'Bot Token 또는 채널 미설정' };
+        }
+        const r = await fetch('https://slack.com/api/chat.postMessage', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            Authorization: `Bearer ${s.slack_bot_token}`,
+          },
+          body: JSON.stringify({ channel: s.slack_channel, text }),
+        });
+        const j = (await r.json()) as { ok?: boolean; error?: string };
+        if (!j.ok) console.warn('[notifier] slack bot api error:', j.error);
+        return j.ok
+          ? { status: 'sent', error: null }
+          : { status: 'failed', error: `Slack API: ${j.error ?? 'unknown'}` };
+      } else {
+        if (!s.slack_webhook_url) {
+          return { status: 'skipped', error: 'Webhook URL 미설정' };
+        }
+        const r = await fetch(s.slack_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (!r.ok) console.warn('[notifier] slack webhook failed: HTTP', r.status);
+        return r.ok
+          ? { status: 'sent', error: null }
+          : { status: 'failed', error: `Webhook HTTP ${r.status}` };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[notifier] slack send failed:', msg);
+      return { status: 'failed', error: msg };
     }
   }
 }

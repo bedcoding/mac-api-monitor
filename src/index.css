@@ -111,6 +111,20 @@ code {
   text-decoration: underline;
 }
 
+/* 전체 타임라인 모달 진입점 — 회색 글씨, hover 시 링크처럼 */
+.more-link {
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity 0.1s,
+    color 0.1s;
+}
+.more-link:hover {
+  opacity: 1;
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
 /* 클릭 가능한 행 — hover 시 배경 강조.
    단 URL 링크 위에 있을 때는 행 하이라이트를 꺼서
    "지금 클릭하면 뭐가 되는지" 신호를 한 번에 하나만 켠다. */
@@ -153,4 +167,19 @@ code {
 .tt:hover > .tt-bubble {
   opacity: 1;
   visibility: visible;
+}
+
+/* 첫 데이터 로딩 스피너 — 로딩이 일정 시간 넘게 걸릴 때만 노출 */
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #3a4150;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }

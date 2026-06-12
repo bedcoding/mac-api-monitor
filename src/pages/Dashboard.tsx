@@ -2,6 +2,18 @@ import { useEffect, useState } from 'react';
 import type { Endpoint, EndpointType, Measurement, Settings } from '../shared/types';
 import { EndpointCard } from '../components/EndpointCard';
 
+const GRAPH_POINTS_KEY = 'dashboard.graphPoints';
+const GRAPH_POINTS_DEFAULT = 60;
+const GRAPH_POINTS_MIN = 10;
+const GRAPH_POINTS_MAX = 1000;
+// 이 시간 안에 로딩이 끝나면 스피너를 띄우지 않는다 (짧은 로딩 깜빡임 방지).
+const SPINNER_DELAY_MS = 300;
+
+function clampPoints(n: number): number {
+  if (!Number.isFinite(n)) return GRAPH_POINTS_DEFAULT;
+  return Math.max(GRAPH_POINTS_MIN, Math.min(GRAPH_POINTS_MAX, Math.round(n)));
+}
+
 export const TYPE_LABEL: Record<EndpointType, string> = {
   health: '헬스체크',
   feature: '기능체크',
@@ -20,23 +32,70 @@ export function MonitorList({
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [measurements, setMeasurements] = useState<Record<number, Measurement[]>>({});
   const [settings, setSettings] = useState<Settings | null>(null);
+  // 첫 load() 완료 전에는 empty 화면을 띄우지 않는다 — "데이터 없음" 과 "아직 로딩 중" 을 구분.
+  const [loaded, setLoaded] = useState(false);
+  // 로딩이 SPINNER_DELAY_MS 넘게 걸릴 때만 스피너를 띄운다.
+  // 0.3초 만에 끝나는 보통 로딩에서는 스피너가 아예 안 떠 깜빡임이 없다.
+  const [showSpinner, setShowSpinner] = useState(false);
+  // 그래프에 띄울 최근 측정 개수 — 사용자가 조정, localStorage 에 기억
+  const [graphPoints, setGraphPoints] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem(GRAPH_POINTS_KEY));
+      return v > 0 ? clampPoints(v) : GRAPH_POINTS_DEFAULT;
+    } catch {
+      return GRAPH_POINTS_DEFAULT;
+    }
+  });
+  const [pointsInput, setPointsInput] = useState(() => String(graphPoints));
 
   async function load() {
+    // endpoints / settings / measurements 를 모두 모은 뒤 한 번에 커밋한다.
+    // 따로 setState 하면 "endpoints 만 있고 measurements 는 빈" 중간 렌더가 새어나가
+    // 카드가 잠깐 "측정 대기 중" 으로 보였다가 그래프가 뿅 채워지는 깜빡임이 생긴다.
     const eps = await window.api.listEndpoints();
-    setEndpoints(eps);
-    setSettings(await window.api.getSettings());
+    const nextSettings = await window.api.getSettings();
     const map: Record<number, Measurement[]> = {};
     await Promise.all(
       eps.map(async ep => {
-        map[ep.id] = await window.api.recentMeasurements(ep.id, 1);
+        // recentMeasurements 는 "개수" 기준 — 그래프용 최근 graphPoints 개 측정
+        map[ep.id] = await window.api.recentMeasurements(ep.id, graphPoints);
       }),
     );
+    // React 18 자동 배칭: 같은 tick 의 setState 들이 한 렌더로 묶인다.
+    setEndpoints(eps);
+    setSettings(nextSettings);
     setMeasurements(map);
+    setLoaded(true);
   }
 
   useEffect(() => {
     load();
-  }, [refreshKey]);
+  }, [refreshKey, graphPoints]);
+
+  // 로딩이 SPINNER_DELAY_MS 를 넘길 때만 스피너를 켠다.
+  // 그 전에 load() 가 끝나면(loaded=true) 타이머가 취소되어 스피너가 아예 안 뜬다.
+  useEffect(() => {
+    if (loaded) {
+      setShowSpinner(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSpinner(true), SPINNER_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [loaded]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GRAPH_POINTS_KEY, String(graphPoints));
+    } catch {
+      /* ignore */
+    }
+  }, [graphPoints]);
+
+  function applyPoints() {
+    const n = clampPoints(Number(pointsInput));
+    setGraphPoints(n);
+    setPointsInput(String(n));
+  }
 
   async function onRemove(id: number) {
     await window.api.removeEndpoint(id);
@@ -46,6 +105,19 @@ export function MonitorList({
 
   const shown = endpoints.filter(e => e.type === filterType);
   const groups = groupBy(shown);
+
+  // 첫 load() 가 끝나기 전에는 empty 화면을 띄우지 않는다.
+  // 그렇지 않으면 데이터가 있어도 잠깐 "endpoint가 없습니다" 가 보였다가 그래프가 뿅 나타난다.
+  // 스피너는 로딩이 SPINNER_DELAY_MS 를 넘길 때만 — 짧은 로딩에선 빈 영역만 잠깐 보인다.
+  if (!loaded) {
+    return (
+      <section
+        style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}
+      >
+        {showSpinner && <div className="spinner" />}
+      </section>
+    );
+  }
 
   if (shown.length === 0) {
     return (
@@ -58,21 +130,59 @@ export function MonitorList({
     );
   }
 
+  // 전역 컨트롤 — 첫 그룹 타이틀 줄 오른쪽에 함께 띄운다.
+  const pointsControl = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+      <label htmlFor="graph-points" style={{ opacity: 0.6 }}>
+        그래프 표시 개수
+      </label>
+      <input
+        id="graph-points"
+        type="number"
+        min={GRAPH_POINTS_MIN}
+        max={GRAPH_POINTS_MAX}
+        value={pointsInput}
+        onChange={e => setPointsInput(e.target.value)}
+        onBlur={applyPoints}
+        onKeyDown={e => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+        title={`${GRAPH_POINTS_MIN}~${GRAPH_POINTS_MAX} 사이, 최근 측정 개수`}
+        style={{ width: 60, textAlign: 'right', padding: '3px 6px' }}
+      />
+      <span style={{ opacity: 0.5 }}>개</span>
+    </div>
+  );
+
   return (
     <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
-      {groups.map(([groupName, eps]) => (
+      {groups.map(([groupName, eps], gi) => (
         <div key={groupName} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }}>
-          {groups.length > 1 && (
+          {/* 첫 그룹 줄에만 컨트롤을 함께 띄운다. 그룹 1개라 타이틀이 없으면 컨트롤만 우측 정렬. */}
+          {(groups.length > 1 || gi === 0) && (
             <div
               style={{
-                fontSize: 12,
-                fontWeight: 600,
-                opacity: 0.6,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
+                display: 'flex',
+                justifyContent: groups.length > 1 ? 'space-between' : 'flex-end',
+                alignItems: 'center',
+                gap: 12,
+                minHeight: 22,
               }}
             >
-              {groupName} · {eps.length}
+              {groups.length > 1 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    opacity: 0.6,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  {groupName} · {eps.length}
+                </div>
+              )}
+              {gi === 0 && pointsControl}
             </div>
           )}
           {eps.map(ep => (
