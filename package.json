@@ -2,12 +2,15 @@
   "name": "mac-api-monitor",
   "version": "0.1.0",
   "private": true,
-  "description": "URL 목록을 주기적으로 fetch 해서 응답시간/상태 모니터링하는 맥북앱",
+  "author": "Ahn",
+  "description": "URL 목록을 주기적으로 fetch 해서 응답시간/상태 모니터링하는 데스크톱 앱 (macOS / Windows)",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build && electron-builder",
-    "build:mac": "tsc --noEmit && vite build && electron-builder --mac"
+    "build:mac": "tsc --noEmit && vite build && electron-builder --mac",
+    "build:win": "tsc --noEmit && vite build && electron-builder --win",
+    "rebuild": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.10",
@@ -34,11 +37,25 @@
       "dist",
       "dist-electron"
     ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg"
       ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"

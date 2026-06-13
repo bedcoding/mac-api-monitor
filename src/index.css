@@ -17,6 +17,8 @@ body {
     -apple-system,
     BlinkMacSystemFont,
     'SF Pro Text',
+    'Segoe UI',
+    Roboto,
     sans-serif;
   background: #14161a;
   color: #e6e8ec;
@@ -72,7 +74,7 @@ textarea:focus {
 }
 
 code {
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: 'SF Mono', Menlo, Consolas, 'Cascadia Mono', monospace;
   font-size: 12px;
 }
 

@@ -4,6 +4,7 @@ import { Database, type NewEndpoint, type SettingsPatch } from './db';
 import { Scheduler, type ProbeResult } from './scheduler';
 import { Notifier } from './notifier';
 import { seedIfEmpty } from './seed';
+import { makeTrayIcon, type TrayLevel } from './windows/trayIcon';
 
 let popover: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -102,11 +103,14 @@ function openMainWindow() {
 }
 
 function trayIconImage(): NativeImage {
-  // 빈 16×16 투명 이미지를 template 으로 만들고 상태는 setTitle 로 emoji.
-  // (실제 아이콘 파일을 쓰려면 assets/tray.png 추가 후 nativeImage.createFromPath 로 교체)
-  const img = nativeImage.createEmpty();
-  img.setTemplateImage(true);
-  return img;
+  // macOS: 빈 template 이미지 + setTitle 로 메뉴바에 emoji 표시.
+  // Windows/Linux: setTitle 이 동작하지 않으므로 상태색 원(+개수) 아이콘을 직접 그린다.
+  if (process.platform === 'darwin') {
+    const img = nativeImage.createEmpty();
+    img.setTemplateImage(true);
+    return img;
+  }
+  return makeTrayIcon('none', 0);
 }
 
 function statusEmoji(): string {
@@ -118,20 +122,39 @@ function statusEmoji(): string {
   return '⚪';
 }
 
+function statusLevelAndCount(): { level: TrayLevel; count: number } {
+  const statuses = Array.from(lastStatusByEndpoint.values());
+  const failure = statuses.filter(s => s === 'failure').length;
+  const critical = statuses.filter(s => s === 'critical').length;
+  const warning = statuses.filter(s => s === 'warning').length;
+  if (failure > 0) return { level: 'failure', count: failure };
+  if (critical > 0) return { level: 'critical', count: critical };
+  if (warning > 0) return { level: 'warning', count: warning };
+  if (statuses.length > 0) return { level: 'healthy', count: 0 };
+  return { level: 'none', count: 0 };
+}
+
 function updateTray() {
   if (!tray) return;
-  const emoji = statusEmoji();
   const statuses = Array.from(lastStatusByEndpoint.values());
   const failure = statuses.filter(s => s === 'failure').length;
   const critical = statuses.filter(s => s === 'critical').length;
   const warning = statuses.filter(s => s === 'warning').length;
 
-  let title = emoji;
-  if (failure > 0) title = `${emoji}${failure}`;
-  else if (critical > 0) title = `${emoji}${critical}`;
-  else if (warning > 0) title = `${emoji}${warning}`;
+  if (process.platform === 'darwin') {
+    // macOS: 메뉴바에 emoji + 개수 텍스트
+    const emoji = statusEmoji();
+    let title = emoji;
+    if (failure > 0) title = `${emoji}${failure}`;
+    else if (critical > 0) title = `${emoji}${critical}`;
+    else if (warning > 0) title = `${emoji}${warning}`;
+    tray.setTitle(title);
+  } else {
+    // Windows/Linux: 상태색 원 + 개수 숫자를 그린 동적 아이콘
+    const { level, count } = statusLevelAndCount();
+    tray.setImage(makeTrayIcon(level, count));
+  }
 
-  tray.setTitle(title);
   tray.setToolTip(
     `API Monitor — f:${failure} c:${critical} w:${warning} total:${statuses.length}`,
   );
@@ -141,12 +164,20 @@ function positionPopover() {
   if (!popover || !tray) return;
   const trayBounds = tray.getBounds();
   const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y });
-  const { x: dx, y: dy, width: dw } = display.workArea;
-  void dy;
+  const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
+  const [, ph] = popover.getSize();
 
   let x = Math.round(trayBounds.x + trayBounds.width / 2 - POPOVER_WIDTH / 2);
   x = Math.max(dx + 8, Math.min(x, dx + dw - POPOVER_WIDTH - 8));
-  const y = Math.round(trayBounds.y + trayBounds.height + 4);
+
+  // macOS 는 메뉴바가 화면 상단이라 트레이 '아래'에 띄운다.
+  // Windows/Linux 는 트레이가 보통 우하단(작업표시줄)이라 '아래'로 띄우면 화면 밖으로 나간다.
+  // → 트레이 '위'에 띄우고, 어느 쪽이든 workArea 안으로 클램프.
+  let y =
+    process.platform === 'darwin'
+      ? Math.round(trayBounds.y + trayBounds.height + 4)
+      : Math.round(trayBounds.y - ph - 4);
+  y = Math.max(dy + 8, Math.min(y, dy + dh - ph - 8));
 
   popover.setPosition(x, y, false);
 }
@@ -250,6 +281,10 @@ function parseImport(json: string, forceType?: 'health' | 'feature'): NewEndpoin
 }
 
 app.whenReady().then(() => {
+  // Windows: 알림(토스트)이 올바른 앱 신원으로 뜨고 작업표시줄에서 묶이도록 AUMID 설정.
+  // build.appId 와 동일하게 맞춘다. (macOS/Linux 에선 사실상 no-op)
+  app.setAppUserModelId('com.local.mac-api-monitor');
+
   if (process.platform === 'darwin') {
     app.dock?.hide();
   }
