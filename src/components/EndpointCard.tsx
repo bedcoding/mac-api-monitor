@@ -46,17 +46,33 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
       }}
     >
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, minWidth: 0 }}>
-        <span
-          aria-label={status.label}
+        <div
+          className="tt"
           style={{
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            background: status.color,
-            boxShadow: `0 0 8px ${status.color}`,
+            display: 'inline-flex',
             flexShrink: 0,
+            cursor: latest && status.label !== 'healthy' ? 'help' : 'default',
           }}
-        />
+        >
+          <span
+            aria-label={status.label}
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              background: status.color,
+              boxShadow: `0 0 8px ${status.color}`,
+            }}
+          />
+          {latest && status.label !== 'healthy' && (
+            <span
+              className="tt-bubble"
+              style={{ maxWidth: 360, whiteSpace: 'normal', wordBreak: 'break-all' }}
+            >
+              {statusReason(latest, warning, critical)}
+            </span>
+          )}
+        </div>
         <div className="tt" style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -170,6 +186,20 @@ function computeStatus(latest: Measurement | undefined, warning: number, critica
   if (!latest.ok || latest.duration_ms >= critical) return { color: '#ef4444', label: 'critical' };
   if (latest.duration_ms >= warning) return { color: '#fbbf24', label: 'warning' };
   return { color: '#4ade80', label: 'healthy' };
+}
+
+/** dot 에 마우스 올렸을 때 "왜 이 색인지" — 실패면 사유(body), 느림이면 임계 초과 안내. */
+function statusReason(latest: Measurement, warning: number, critical: number): string {
+  if (!latest.ok) {
+    return latest.body?.trim() || `실패 — ${latest.status ? `HTTP ${latest.status}` : '응답 없음'}`;
+  }
+  if (latest.duration_ms >= critical) {
+    return `매우 느림 — ${latest.duration_ms}ms (위험 임계 ${critical}ms 초과)`;
+  }
+  if (latest.duration_ms >= warning) {
+    return `느림 — ${latest.duration_ms}ms (경고 임계 ${warning}ms 초과)`;
+  }
+  return '정상';
 }
 
 function timeAgo(ts: number): string {

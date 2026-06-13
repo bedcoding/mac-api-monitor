@@ -466,6 +466,37 @@ function BrowserConfigCard({
         </label>
       </div>
 
+      {/* 데이터 API 실패 감지 — 껍데기 HTML 은 200이어도 같은 도메인 API 가 터지면 실패로. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '10px 12px',
+          marginBottom: 14,
+          background: '#14161a',
+          borderRadius: 8,
+          border: '1px solid #3a4150',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>데이터 API 실패도 장애로 잡기</div>
+          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
+            화면 껍데기는 200이어도, 같은 도메인 API(XHR·fetch)가 5xx거나 연결 실패면 실패로 표시합니다
+            (화면 하얀 케이스). 끄면 껍데기 HTTP 상태만 봅니다.
+          </div>
+        </div>
+        <label style={{ flexShrink: 0, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={cfg.fail_on_api_error === 1}
+            onChange={e => onSave({ fail_on_api_error: e.target.checked ? 1 : 0 })}
+            style={{ width: 18, height: 18 }}
+          />
+        </label>
+      </div>
+
       <Row
         label="로그인 페이지 URL"
         hint="로그인하는 페이지 주소. '로그인 창 열기'가 이 주소를 열고, 점검 중 화면이 여기로 튕기면 '세션 만료'로 자동 판정. 로그인 패턴은 이 주소에서 자동 추출됨 (예: https://www.example.com/login)"

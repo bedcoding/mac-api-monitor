@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, type Session } from 'electron';
 
 /**
  * 브라우저 점검 실행기.
@@ -14,12 +14,45 @@ import { app, BrowserWindow } from 'electron';
 
 const PARTITION = 'persist:monitor';
 
+// 정상 진입으로 판정된 뒤, SPA 가 뒤이어 쏘는 데이터 API 호출이 끝날 시간을 더 둔다.
+// 이 동안 같은 사이트의 XHR/fetch 5xx 를 수집한다. (durationMs 에는 포함하지 않음)
+const API_OBSERVE_MS = 2000;
+
 export interface BrowserRunResult {
   ok: boolean;
   status: number; // 메인 프레임 HTTP 상태 (0 = 알 수 없음/네트워크 오류)
   durationMs: number;
   body: string | null; // 실패/특이사항 단서 (성공이면 보통 null)
   loginRedirect: boolean; // 로그인 페이지로 튕김 = 세션 만료
+  apiErrors: Array<{ url: string; status: number }>; // 점검 중 실패한 같은 사이트 XHR/fetch (status 0 = 연결 실패)
+}
+
+// 흔한 2단계 TLD — eTLD+1(등록 가능 도메인) 추정용. 완벽한 public-suffix 목록은 아니지만 한/일/영/호주 위주로 커버.
+const TWO_LEVEL_TLDS = new Set([
+  'co.kr', 'ne.kr', 'or.kr', 'go.kr', 're.kr', 'pe.kr',
+  'co.jp', 'ne.jp', 'or.jp', 'co.uk', 'org.uk', 'com.au', 'net.au', 'com.cn', 'com.br',
+]);
+
+/** host → 등록 가능 도메인(예: api.lezhin.com → lezhin.com, x.lezhin.co.kr → lezhin.co.kr). */
+function registrableDomain(host: string): string {
+  const parts = host.toLowerCase().split('.').filter(Boolean);
+  if (parts.length <= 2) return parts.join('.');
+  const lastTwo = parts.slice(-2).join('.');
+  if (TWO_LEVEL_TLDS.has(lastTwo)) return parts.slice(-3).join('.');
+  return lastTwo;
+}
+
+/** 요청 URL 이 점검 대상 페이지와 "같은 사이트"인지 — host 동일 또는 등록 가능 도메인 공유. 판정 불가 시 false(오탐 방지). */
+function sameSite(reqUrl: string, pageHost: string): boolean {
+  if (!pageHost) return false;
+  try {
+    const reqHost = new URL(reqUrl).hostname;
+    if (!reqHost) return false;
+    if (reqHost === pageHost) return true;
+    return registrableDomain(reqHost) === registrableDomain(pageHost);
+  } catch {
+    return false;
+  }
 }
 
 function platformToken(): string {
@@ -75,6 +108,12 @@ export class BrowserRunner {
   private loginNavCleanup: (() => void) | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private visible = false; // '실제 동작 보기': 점검용 숨은 창을 보이게 할지
+  // 같은 사이트 API 실패 수집 상태 (한 번에 한 점검만 도는 직렬 큐라 인스턴스 1세트로 충분).
+  private collecting = false; // 지금 점검 1회가 수집 중인지
+  private failedApi: Array<{ url: string; status: number }> = [];
+  private monitorWcId = -1; // 점검용 숨은 창의 webContents id (로그인 창 요청과 구분)
+  private runHost = ''; // 현재 점검 중인 페이지 host (same-site 판정 기준)
+  private webRequestHooked = false; // 세션 webRequest 리스너 중복 등록 가드
 
   /** 점검 창 가시성이 (사용자가 창을 닫는 등으로) 바뀌면 알림 — 렌더러 체크박스 동기화용. */
   onVisibleChange: ((visible: boolean) => void) | null = null;
@@ -103,6 +142,8 @@ export class BrowserRunner {
       },
     });
     this.hidden = win;
+    this.monitorWcId = win.webContents.id;
+    this.hookApiErrorCollection(win.webContents.session);
     // 점검용 숨은 창은 팝업(window.open)을 전부 차단 — 페이지가 새 창을 띄워 폭주(옴닉사태)하는 것 원천 봉쇄.
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     // '실제 동작 보기'로 보이던 창을 사용자가 직접 닫으면 = 보기 해제로 간주(체크박스 동기화).
@@ -117,6 +158,36 @@ export class BrowserRunner {
     // 점검 화면 진입을 눈으로 보는 모드면, (재생성된 창이라도) 포커스를 뺏지 않고 보이게.
     if (this.visible) win.showInactive();
     return win;
+  }
+
+  /**
+   * persist:monitor 세션의 XHR/fetch 응답을 엿봐, 점검 중(collecting) 같은 사이트 5xx·연결실패를 모은다.
+   * 세션은 창 재생성과 무관하게 동일하므로 리스너는 1회만 등록(monitorWcId 로 현재 점검 창 요청만 인정).
+   */
+  private hookApiErrorCollection(ses: Session) {
+    if (this.webRequestHooked) return;
+    this.webRequestHooked = true;
+    const filter = { urls: ['*://*/*'] };
+    ses.webRequest.onCompleted(filter, details => {
+      if (!this.collecting) return;
+      if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId) return;
+      const rt = String(details.resourceType);
+      if (rt !== 'xhr' && rt !== 'fetch') return;
+      const status = details.statusCode ?? 0;
+      if (status >= 500 && sameSite(details.url, this.runHost)) {
+        this.failedApi.push({ url: details.url, status });
+      }
+    });
+    ses.webRequest.onErrorOccurred(filter, details => {
+      if (!this.collecting) return;
+      if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId) return;
+      const rt = String(details.resourceType);
+      if (rt !== 'xhr' && rt !== 'fetch') return;
+      if (/ABORTED/i.test(String(details.error))) return; // 페이지 이동 등으로 취소된 요청은 장애 아님
+      if (sameSite(details.url, this.runHost)) {
+        this.failedApi.push({ url: details.url, status: 0 });
+      }
+    });
   }
 
   /** '실제 동작 보기' 토글: 점검용 창을 보이게/숨기게. 보일 땐 포커스를 뺏지 않는다(showInactive). */
@@ -137,13 +208,16 @@ export class BrowserRunner {
    * 화면 1개 진입 점검.
    * - 메인 프레임 HTTP 상태, 최종 URL(로그인 리다이렉트 여부), 콘솔 에러 수를 본다.
    */
-  run(url: string, opts: { timeoutMs: number; loginPattern: string }): Promise<BrowserRunResult> {
+  run(
+    url: string,
+    opts: { timeoutMs: number; loginPattern: string; collectApiErrors?: boolean },
+  ): Promise<BrowserRunResult> {
     return this.enqueue(() => this.doRun(url, opts));
   }
 
   private async doRun(
     url: string,
-    opts: { timeoutMs: number; loginPattern: string },
+    opts: { timeoutMs: number; loginPattern: string; collectApiErrors?: boolean },
   ): Promise<BrowserRunResult> {
     const win = this.ensureHidden();
     const wc = win.webContents;
@@ -160,10 +234,26 @@ export class BrowserRunner {
     wc.on('console-message', onConsole);
     wc.on('did-navigate', onNavigate);
 
+    // 같은 사이트 API 실패 수집 시작 (실제 push 는 ensureHidden 에 등록된 webRequest 리스너가 한다).
+    this.failedApi = [];
+    try {
+      this.runHost = new URL(url).hostname;
+    } catch {
+      this.runHost = '';
+    }
+    this.collecting = true;
+
     const start = Date.now();
     let ok = false;
     let body: string | null = null;
     let loginRedirect = false;
+    let durationMs = 0;
+
+    // 정상 진입으로 판정됐을 때만, 데이터 API 호출이 끝날 시간을 더 줘서 5xx 를 수집.
+    // durationMs(속도 지표)는 이 대기 전에 이미 확정하므로 부풀지 않는다.
+    const observeApi = async () => {
+      if (opts.collectApiErrors) await delay(API_OBSERVE_MS);
+    };
 
     try {
       await withTimeout(wc.loadURL(url, { userAgent: userAgent() }), opts.timeoutMs, () =>
@@ -171,6 +261,7 @@ export class BrowserRunner {
       );
       // 클라이언트(JS) 리다이렉트가 로드 직후 일어날 수 있어 잠깐 기다렸다 최종 URL 확인.
       await delay(600);
+      durationMs = Date.now() - start;
       const finalUrl = wc.getURL();
       loginRedirect = !!opts.loginPattern && finalUrl.includes(opts.loginPattern);
 
@@ -182,6 +273,7 @@ export class BrowserRunner {
         body = `HTTP ${status} · ${finalUrl}`;
       } else {
         ok = true;
+        await observeApi();
         if (consoleErrors > 0) body = `로드 성공 · 콘솔 에러 ${consoleErrors}건`;
       }
     } catch (e) {
@@ -190,6 +282,7 @@ export class BrowserRunner {
       // 이때는 실패로 단정하지 말고 최종 URL 로 다시 판정한다.
       if (/ERR_ABORTED/i.test(msg)) {
         await delay(600);
+        durationMs = Date.now() - start;
         const finalUrl = wc.getURL();
         loginRedirect = !!opts.loginPattern && finalUrl.includes(opts.loginPattern);
         if (loginRedirect) {
@@ -197,6 +290,7 @@ export class BrowserRunner {
           body = `SESSION_EXPIRED: 로그인 페이지로 이동됨 — 재로그인 필요 (${finalUrl})`;
         } else if (finalUrl && finalUrl !== 'about:blank' && status < 400) {
           ok = true;
+          await observeApi();
           if (consoleErrors > 0) body = `로드 성공(리다이렉트) · 콘솔 에러 ${consoleErrors}건`;
         } else {
           ok = false;
@@ -207,11 +301,13 @@ export class BrowserRunner {
         body = `로드 실패: ${msg}`.slice(0, 2048);
       }
     } finally {
+      this.collecting = false;
       wc.off('console-message', onConsole);
       wc.off('did-navigate', onNavigate);
     }
 
-    return { ok, status, durationMs: Date.now() - start, body, loginRedirect };
+    if (durationMs === 0) durationMs = Date.now() - start;
+    return { ok, status, durationMs, body, loginRedirect, apiErrors: this.failedApi.slice() };
   }
 
   /**
@@ -308,6 +404,7 @@ export class BrowserRunner {
   }
 
   destroy() {
+    this.collecting = false;
     for (const w of [this.hidden, this.loginWindow]) {
       if (w && !w.isDestroyed()) w.destroy();
     }

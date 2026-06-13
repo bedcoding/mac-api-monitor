@@ -16,12 +16,13 @@ export interface RawProbe {
 export interface BrowserProbe {
   run(
     url: string,
-    opts: { timeoutMs: number; loginPattern: string },
+    opts: { timeoutMs: number; loginPattern: string; collectApiErrors?: boolean },
   ): Promise<{
     ok: boolean;
     status: number;
     durationMs: number;
     body: string | null;
     loginRedirect: boolean;
+    apiErrors: Array<{ url: string; status: number }>;
   }>;
 }

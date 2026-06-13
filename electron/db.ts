@@ -76,6 +76,7 @@ export interface TypeSettings {
   base_url: string; // 로그인 페이지 URL ('로그인 창 열기'가 여는 주소 + 로그인 리다이렉트 패턴 추출원)
   login_pattern: string; // 최종 URL 이 이 문자열을 포함하면 "세션 만료"로 판정 (base_url 에서 자동 추출)
   checks_enabled: number; // 0 = 이 type 자동 점검 비상정지. 기본 1. (현재 UI 는 browser 만 노출)
+  fail_on_api_error: number; // browser 전용. 1이면 같은 사이트 API(XHR/fetch) 5xx/연결실패도 장애로. 기본 1.
   alarm_mode: AlarmMode;
   alarm_consecutive: number; // consecutive 모드: 연속 N회
   alarm_window: number; // sliding 모드: 최근 N개 측정 윈도우
@@ -115,6 +116,7 @@ const DEFAULT_HEALTH: TypeSettings = {
   base_url: '',
   login_pattern: '',
   checks_enabled: 1,
+  fail_on_api_error: 0,
   alarm_mode: 'consecutive',
   alarm_consecutive: 2,
   alarm_window: 5,
@@ -137,6 +139,7 @@ const DEFAULT_FEATURE: TypeSettings = {
   base_url: '',
   login_pattern: '',
   checks_enabled: 1,
+  fail_on_api_error: 0,
   alarm_mode: 'cycle',
   alarm_consecutive: 10,
   alarm_window: 10,
@@ -161,6 +164,7 @@ const DEFAULT_BROWSER: TypeSettings = {
   base_url: '',
   login_pattern: '/login',
   checks_enabled: 1,
+  fail_on_api_error: 1,
   alarm_mode: 'consecutive',
   alarm_consecutive: 2,
   alarm_window: 5,
@@ -529,6 +533,7 @@ export class Database {
         base_url: map[`${prefix}.base_url`] ?? def.base_url,
         login_pattern: map[`${prefix}.login_pattern`] ?? def.login_pattern,
         checks_enabled: Number(map[`${prefix}.checks_enabled`] ?? def.checks_enabled),
+        fail_on_api_error: Number(map[`${prefix}.fail_on_api_error`] ?? def.fail_on_api_error),
         alarm_mode,
         alarm_consecutive: Number(
           map[`${prefix}.alarm_consecutive`] ?? legacy.alarm_consecutive ?? def.alarm_consecutive,

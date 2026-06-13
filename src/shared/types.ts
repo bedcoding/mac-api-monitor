@@ -40,6 +40,7 @@ export interface TypeSettings {
   base_url: string;
   login_pattern: string;
   checks_enabled: number;
+  fail_on_api_error: number;
   alarm_mode: AlarmMode;
   alarm_consecutive: number;
   alarm_window: number;
