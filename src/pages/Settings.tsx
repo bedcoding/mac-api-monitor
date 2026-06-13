@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Settings as SettingsType, TypeSettings, EndpointType } from '../shared/types';
+import type {
+  Settings as SettingsType,
+  TypeSettings,
+  EndpointType,
+  BrowserSessionStatus,
+} from '../shared/types';
 
 export function Settings({ onlyType }: { onlyType: EndpointType }) {
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -22,6 +27,7 @@ export function Settings({ onlyType }: { onlyType: EndpointType }) {
 
   return (
     <section style={{ display: 'grid', gap: 16, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+      {onlyType === 'browser' && <BrowserConfigCard cfg={cfg} onSave={save} />}
       <CycleCard cfg={cfg} endpointCount={endpointCount} onSave={save} />
       <ThresholdCard cfg={cfg} onSave={save} />
       <RetentionCard cfg={cfg} onSave={save} />
@@ -162,7 +168,7 @@ export function AlarmCard({
     });
   }, [type]);
 
-  const typeLabel = type === 'health' ? '헬스체크' : '기능체크';
+  const typeLabel = type === 'health' ? '헬스체크' : type === 'browser' ? '브라우저' : '기능체크';
   const groupsAllSingleton = stats.groups.length > 0 && stats.groups.every(g => g.size === 1);
 
   return (
@@ -371,6 +377,135 @@ function RetentionCard({
         </Row>
       )}
     />
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+ * 브라우저 점검 전용 — 로그인 페이지 / 세션 확인
+ * ────────────────────────────────────────────────────────── */
+
+/**
+ * 로그인 페이지 URL 에서 '세션 만료' 판정 패턴(경로)을 자동 추출.
+ * 로그인스러운 경로(login/signin/auth)일 때만 채택 — 홈 등 일반 경로를 넣었을 때
+ * 모든 페이지가 '만료'로 오판되는 것을 막고 안전한 기본값 '/login' 으로 떨어진다.
+ */
+function loginPatternFrom(url: string): string {
+  try {
+    const p = new URL(url).pathname;
+    if (/login|signin|sign-in|auth/i.test(p)) return p;
+  } catch {
+    /* ignore */
+  }
+  return '/login';
+}
+
+function BrowserConfigCard({
+  cfg,
+  onSave,
+}: {
+  cfg: TypeSettings;
+  onSave: (patch: Partial<TypeSettings>) => Promise<void>;
+}) {
+  const [baseUrl, setBaseUrl] = useState(cfg.base_url);
+  const [session, setSession] = useState<BrowserSessionStatus | null>(null);
+  const [loginMsg, setLoginMsg] = useState<string | null>(null);
+
+  useEffect(() => setBaseUrl(cfg.base_url), [cfg.base_url]);
+
+  // 로그인 상태: 초기엔 main 의 추적값을 받고, 로그인 창에서 로그인 감지 시 push 로 자동 갱신.
+  useEffect(() => {
+    window.api.browserSessionStatus().then(setSession);
+    return window.api.onBrowserSessionChange(setSession);
+  }, []);
+
+  async function openLogin() {
+    const r = await window.api.openBrowserLogin();
+    setLoginMsg(r.message);
+  }
+
+  const badge =
+    session === null || session.state === 'unknown'
+      ? { text: '로그인 상태 미확인 — 아래 버튼으로 로그인', color: '#9aa6b8' }
+      : session.state === 'ok'
+        ? { text: '로그인됨 ✓', color: '#4ade80' }
+        : { text: '세션 만료 — 재로그인 필요', color: '#f87171' };
+
+  return (
+    <div style={card}>
+      <h3 style={cardTitle}>브라우저 / 로그인</h3>
+
+      {/* 비상정지 토글 — "맥북 연기 모락모락" 시 클릭. 끄면 자동 점검 즉시 중단 + 숨은 창 닫힘. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '10px 12px',
+          marginBottom: 14,
+          background: '#14161a',
+          borderRadius: 8,
+          border: `1px solid ${cfg.checks_enabled ? '#3a4150' : '#ef4444'}`,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>
+            자동 점검 {cfg.checks_enabled ? '켜짐 🟢' : '꺼짐 ⛔ (비상정지)'}
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
+            끄면 자동 화면 점검이 즉시 멈추고 숨은 창도 닫힙니다. 다시 켜면 이어서 점검.
+          </div>
+        </div>
+        <label style={{ flexShrink: 0, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={cfg.checks_enabled === 1}
+            onChange={e => onSave({ checks_enabled: e.target.checked ? 1 : 0 })}
+            style={{ width: 18, height: 18 }}
+          />
+        </label>
+      </div>
+
+      <Row
+        label="로그인 페이지 URL"
+        hint="로그인하는 페이지 주소. '로그인 창 열기'가 이 주소를 열고, 점검 중 화면이 여기로 튕기면 '세션 만료'로 자동 판정. 로그인 패턴은 이 주소에서 자동 추출됨 (예: https://www.example.com/login)"
+      >
+        <input
+          type="text"
+          placeholder="https://www.example.com/login"
+          value={baseUrl}
+          onChange={e => setBaseUrl(e.target.value)}
+          onBlur={() => {
+            const v = baseUrl.trim();
+            if (v !== cfg.base_url) onSave({ base_url: v, login_pattern: loginPatternFrom(v) });
+          }}
+          style={{ width: '100%' }}
+        />
+      </Row>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginTop: 4,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button className="btn-primary" onClick={openLogin}>
+          로그인 창 열기
+        </button>
+        <span style={{ fontSize: 12, color: badge.color }}>● {badge.text}</span>
+      </div>
+      {loginMsg && <p style={{ fontSize: 11, opacity: 0.6, margin: '8px 0 0' }}>{loginMsg}</p>}
+
+      <p style={{ ...infoBox, marginTop: 10 }}>
+        <strong>로그인 창 열기</strong> → 로그인하면 자동으로 '로그인됨'이 표시됩니다 (세션은 저장돼 앱을
+        껐다 켜도 유지). 점검할 화면은 <strong>추가</strong> 탭에서 <strong>로그인해야 보이는 URL</strong> 로
+        등록하세요. 세션이 끊기면 그 화면들이 조회/로그에서 빨강('재로그인 필요')으로 알려줍니다.
+        <br />※ 세션 만료는 슬랙 알람을 쏘지 않습니다(장애 아님).
+      </p>
+    </div>
   );
 }
 

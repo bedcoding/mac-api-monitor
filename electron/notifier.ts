@@ -36,7 +36,7 @@ export class Notifier {
   }
 
   observe(ep: Endpoint, level: Level | null, durationMs: number, status: number) {
-    const cfg = ep.type === 'health' ? this.settings.health : this.settings.feature;
+    const cfg = this.settings[ep.type];
     if (!cfg.alarms_enabled) return;
 
     if (cfg.alarm_mode === 'cycle') {
@@ -58,7 +58,7 @@ export class Notifier {
     type: Endpoint['type'],
     results: Array<{ group: string; hit: boolean; level: Level | null }>,
   ) {
-    const cfg = type === 'health' ? this.settings.health : this.settings.feature;
+    const cfg = this.settings[type];
     if (!cfg.alarms_enabled) return;
     if (cfg.alarm_mode !== 'cycle') return;
 
@@ -206,7 +206,7 @@ export class Notifier {
 
   /** 설정 화면의 "Slack 테스트" 버튼용. 해당 type 의 슬랙 설정으로 발송. */
   async testSlack(type: Endpoint['type']): Promise<{ ok: boolean; message: string }> {
-    const s = type === 'health' ? this.settings.health : this.settings.feature;
+    const s = this.settings[type];
     const text = `:white_check_mark: API Monitor 테스트 메시지 — ${type} (${new Date().toLocaleString('ko-KR')})`;
     try {
       if (s.slack_mode === 'bot') {
@@ -247,7 +247,7 @@ export class Notifier {
     type: Endpoint['type'],
     text: string,
   ): Promise<{ status: SlackStatus; error: string | null }> {
-    const s = type === 'health' ? this.settings.health : this.settings.feature;
+    const s = this.settings[type];
     try {
       if (s.slack_mode === 'bot') {
         if (!s.slack_bot_token || !s.slack_channel) {

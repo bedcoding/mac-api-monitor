@@ -1,5 +1,8 @@
 import type { Database, Endpoint, EndpointType, Settings, TypeSettings } from './db';
 import type { Notifier, Level } from './notifier';
+import type { BrowserProbe } from './probeTypes';
+import { fetchProbe } from './fetchProbe';
+import { browserProbe } from './browserProbe';
 
 export interface ProbeResult {
   endpointId: number;
@@ -15,6 +18,7 @@ export class Scheduler {
   private settings: Settings;
   private tracks: Record<EndpointType, Track>;
   private pruneTimer: NodeJS.Timeout | null = null;
+  private browserProbe: BrowserProbe | null = null;
 
   onProbeComplete: ((result: ProbeResult) => void) | null = null;
 
@@ -26,7 +30,13 @@ export class Scheduler {
     this.tracks = {
       health: new Track('health', this),
       feature: new Track('feature', this),
+      browser: new Track('browser', this),
     };
+  }
+
+  /** main 프로세스가 Electron 기반 브라우저 러너를 주입한다. */
+  setBrowserProbe(p: BrowserProbe) {
+    this.browserProbe = p;
   }
 
   /** Track 들이 접근하는 헬퍼 */
@@ -44,14 +54,12 @@ export class Scheduler {
   }
 
   start() {
-    this.tracks.health.start();
-    this.tracks.feature.start();
+    for (const t of Object.values(this.tracks)) t.start();
     this.schedulePrune();
   }
 
   stop() {
-    this.tracks.health.stop();
-    this.tracks.feature.stop();
+    for (const t of Object.values(this.tracks)) t.stop();
     if (this.pruneTimer) {
       clearTimeout(this.pruneTimer);
       this.pruneTimer = null;
@@ -60,8 +68,7 @@ export class Scheduler {
 
   reconfigure(settings: Settings) {
     this.settings = settings;
-    this.tracks.health.reconfigure();
-    this.tracks.feature.reconfigure();
+    for (const t of Object.values(this.tracks)) t.reconfigure();
   }
 
   private schedulePrune() {
@@ -69,9 +76,10 @@ export class Scheduler {
       try {
         const h = this.db.pruneOldByType('health', this.settings.health.retention_days);
         const f = this.db.pruneOldByType('feature', this.settings.feature.retention_days);
-        const total = h + f;
+        const b = this.db.pruneOldByType('browser', this.settings.browser.retention_days);
+        const total = h + f + b;
         if (total > 0) {
-          console.log(`[scheduler] pruned ${total} (health=${h}, feature=${f})`);
+          console.log(`[scheduler] pruned ${total} (health=${h}, feature=${f}, browser=${b})`);
         }
       } catch (e) {
         console.warn('[scheduler] prune failed:', e);
@@ -83,7 +91,45 @@ export class Scheduler {
   async probeOnce(endpointId: number): Promise<ProbeResult | null> {
     const ep = this.db.listEndpoints().find(e => e.id === endpointId);
     if (!ep) return null;
-    return probe(this, ep);
+    return this.runProbe(ep);
+  }
+
+  /**
+   * 점검 1회 실행 → 측정 기록 + 알람 관찰 + 이벤트 emit.
+   * 점검 방식(fetch / browser)만 전략으로 분기하고, 기록·알람 등 공통 처리는 여기 한 곳.
+   */
+  async runProbe(ep: Endpoint): Promise<ProbeResult> {
+    const cfg = this.settings[ep.type];
+    const raw =
+      ep.type === 'browser'
+        ? await browserProbe(this.browserProbe, ep, cfg)
+        : await fetchProbe(ep, cfg);
+
+    this.db.recordMeasurement({
+      endpoint_id: ep.id,
+      ts: raw.ts,
+      duration_ms: raw.durationMs,
+      status: raw.status,
+      ok: raw.ok ? 1 : 0,
+      body: raw.body,
+    });
+
+    // suppressAlarm(예: 세션 만료)은 장애가 아니므로 알람 관찰을 건너뛰고 연속 카운터만 리셋.
+    if (raw.suppressAlarm) {
+      this.notifier.reset(ep.id);
+    } else {
+      this.notifier.observe(ep, classify(cfg, raw.durationMs, raw.ok), raw.durationMs, raw.status);
+    }
+
+    const result: ProbeResult = {
+      endpointId: ep.id,
+      ts: raw.ts,
+      durationMs: raw.durationMs,
+      status: raw.status,
+      ok: raw.ok,
+    };
+    this.emitProbeComplete(result);
+    return result;
   }
 }
 
@@ -137,6 +183,14 @@ class Track {
     if (this.stopped) return;
 
     const cfg = this.cfg();
+
+    // 비상정지(checks_enabled=0): 자동 사이클을 건너뛰되, 다음 사이클은 예약해 둬서
+    // 다시 켜면 끊김 없이 이어진다. (현재 UI 는 browser 만 끄게 노출)
+    if (!cfg.checks_enabled) {
+      this.cycleTimer = setTimeout(() => this.runCycle(), Math.max(5_000, cfg.interval_ms));
+      return;
+    }
+
     const endpoints = this.scheduler
       .getDb()
       .listEndpoints()
@@ -155,7 +209,7 @@ class Track {
         const t = setTimeout(async () => {
           if (this.stopped) return resolve();
           try {
-            const r = await probe(this.scheduler, ep);
+            const r = await this.scheduler.runProbe(ep);
             if (isCycle) {
               const cc = this.cfg();
               const level = classify(cc, r.durationMs, r.ok);
@@ -196,71 +250,4 @@ function classify(cfg: TypeSettings, durationMs: number, ok: boolean): Level | n
   if (!ok || durationMs >= cfg.critical_ms) return 'critical';
   if (durationMs >= cfg.warning_ms) return 'warning';
   return null;
-}
-
-async function probe(scheduler: Scheduler, ep: Endpoint): Promise<ProbeResult> {
-  const cfg = scheduler.getSettings()[ep.type];
-  const start = Date.now();
-  let status = 0;
-  let ok = false;
-  let body: string | null = null;
-
-  const timeoutMs = Math.max(cfg.critical_ms * 2, 10_000);
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(ep.url, { method: ep.method, signal: ac.signal });
-    status = res.status;
-    ok = res.ok;
-    // 200 OK 가 아닐 때만 본문 저장 (4xx/5xx 디버깅 단서).
-    // 본문은 앞 2KB 만, PII/토큰 등 저장 위험을 줄임.
-    if (!ok) {
-      try {
-        body = (await res.text()).slice(0, 2048);
-      } catch {
-        body = null;
-      }
-    }
-  } catch (e) {
-    ok = false;
-    // fetch 자체가 throw 한 경우 (timeout/DNS/연결 거부 등). 에러 메시지를 단서로 저장.
-    if (ac.signal.aborted) {
-      body = `응답시간 초과 (${timeoutMs}ms)`;
-    } else {
-      // undici 는 겉으로 'fetch failed' 만 던지고 진짜 원인(ENOTFOUND 등)은 cause 에 숨김
-      let msg = e instanceof Error ? e.message : String(e);
-      if (e instanceof Error && e.cause) {
-        const c = e.cause;
-        const detail =
-          c instanceof AggregateError && c.errors.length
-            ? c.errors.map(x => (x instanceof Error ? x.message : String(x))).join(', ')
-            : c instanceof Error
-              ? c.message
-              : String(c);
-        if (detail) msg += ` (${detail})`;
-      }
-      body = msg.slice(0, 2048);
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const durationMs = Date.now() - start;
-
-  scheduler.getDb().recordMeasurement({
-    endpoint_id: ep.id,
-    ts: start,
-    duration_ms: durationMs,
-    status,
-    ok: ok ? 1 : 0,
-    body,
-  });
-
-  const level = classify(cfg, durationMs, ok);
-  scheduler.getNotifier().observe(ep, level, durationMs, status);
-
-  const result: ProbeResult = { endpointId: ep.id, ts: start, durationMs, status, ok };
-  scheduler.emitProbeComplete(result);
-  return result;
 }

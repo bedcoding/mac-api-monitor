@@ -18,19 +18,60 @@ const ACTION_LABEL: Record<Action, string> = {
 const TYPE_TOOLTIP: Record<EndpointType, string> = {
   health: `서버 생존 확인용 가벼운 API (예: /health)`,
   feature: `실제 비즈니스 로직 API (랭킹, 콘텐츠 목록 등)`,
+  browser: `로그인 상태로 실제 화면 진입을 점검 (Electron 내장 브라우저). 설정 탭에서 base URL 입력 + '로그인 창 열기'로 1회 로그인 필요`,
 };
 
 const isPopover = typeof window !== 'undefined' && window.location.hash === '#popover';
 
+// 마지막으로 본 탭(action) / 타입(type)을 기억 — pin·그래프 개수와 동일하게 localStorage 사용.
+const ACTION_KEY = 'ui.action';
+const TYPE_KEY = 'ui.type';
+
+function loadAction(): Action {
+  try {
+    const v = localStorage.getItem(ACTION_KEY);
+    if (v && v in ACTION_LABEL) return v as Action;
+  } catch {
+    /* ignore */
+  }
+  return 'monitor';
+}
+
+function loadType(): EndpointType {
+  try {
+    const v = localStorage.getItem(TYPE_KEY);
+    if (v === 'health' || v === 'feature' || v === 'browser') return v;
+  } catch {
+    /* ignore */
+  }
+  return 'health';
+}
+
 export function App() {
-  const [action, setAction] = useState<Action>('monitor');
-  const [type, setType] = useState<EndpointType>('health');
+  const [action, setAction] = useState<Action>(loadAction);
+  const [type, setType] = useState<EndpointType>(loadType);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => setRefreshKey(k => k + 1), 10_000);
     return () => clearInterval(id);
   }, []);
+
+  // 마지막 탭/타입을 기억해 다음 실행 때 복원.
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTION_KEY, action);
+    } catch {
+      /* ignore */
+    }
+  }, [action]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TYPE_KEY, type);
+    } catch {
+      /* ignore */
+    }
+  }, [type]);
 
   const bump = () => setRefreshKey(k => k + 1);
 
@@ -107,11 +148,11 @@ function TypeToggle({
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
         gap: 8,
       }}
     >
-      {(['health', 'feature'] as EndpointType[]).map(t => {
+      {(['health', 'feature', 'browser'] as EndpointType[]).map(t => {
         const active = type === t;
         return (
           <div key={t} className="tt">

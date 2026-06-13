@@ -73,6 +73,18 @@ textarea:focus {
   border-color: #4a5568;
 }
 
+/* 숫자 입력칸 native spinner(우측 위아래 화살표) 숨김 — 투박해서 제거.
+   값은 직접 타이핑/스크롤로 조절(컴포넌트가 blur 시 clamp). */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 code {
   font-family: 'SF Mono', Menlo, Consolas, 'Cascadia Mono', monospace;
   font-size: 12px;

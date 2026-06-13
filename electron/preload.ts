@@ -20,6 +20,13 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch: unknown) => ipcRenderer.invoke('settings:update', patch),
   probeNow: (endpointId: number) => ipcRenderer.invoke('probe:now', endpointId),
+  openBrowserLogin: () => ipcRenderer.invoke('browser:openLogin'),
+  browserSessionStatus: () => ipcRenderer.invoke('browser:sessionStatus'),
+  onBrowserSessionChange: (cb: (s: unknown) => void) => {
+    const listener = (_e: unknown, s: unknown) => cb(s);
+    ipcRenderer.on('browser:session-changed', listener);
+    return () => ipcRenderer.removeListener('browser:session-changed', listener);
+  },
   openMainWindow: () => ipcRenderer.invoke('window:openMain'),
   closePopover: () => ipcRenderer.invoke('window:closePopover'),
   setPopoverPinned: (pinned: boolean) =>

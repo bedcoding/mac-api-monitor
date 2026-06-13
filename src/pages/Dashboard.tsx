@@ -17,6 +17,7 @@ function clampPoints(n: number): number {
 export const TYPE_LABEL: Record<EndpointType, string> = {
   health: '헬스체크',
   feature: '기능체크',
+  browser: '브라우저',
 };
 
 /** 조회 화면: 해당 type 의 endpoint 카드 + 차트 (그룹별 섹션) */

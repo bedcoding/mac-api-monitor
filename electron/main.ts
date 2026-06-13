@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, type NativeImage } from 'electron';
 import path from 'node:path';
-import { Database, type NewEndpoint, type SettingsPatch } from './db';
+import { Database, type NewEndpoint, type SettingsPatch, type EndpointType } from './db';
 import { Scheduler, type ProbeResult } from './scheduler';
 import { Notifier } from './notifier';
+import { BrowserRunner } from './browserRunner';
 import { seedIfEmpty } from './seed';
 import { makeTrayIcon, type TrayLevel } from './windows/trayIcon';
 
@@ -12,10 +13,22 @@ let tray: Tray | null = null;
 let scheduler: Scheduler;
 let db: Database;
 let notifier: Notifier;
+let browserRunner: BrowserRunner;
 let popoverPinned = false;
 let lastBlurHideAt = 0;
 
 const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical' | 'failure'>();
+
+// 브라우저 로그인 상태 — 로그인 창에서 로그인 성공이 감지되면 'ok' 로 바뀌고 모든 창에 broadcast.
+// (앱 재시작 시 'unknown' 으로 초기화 — 세션 쿠키는 살아있어도 유효성은 점검 화면 결과로 확인)
+let browserSessionState: 'ok' | 'expired' | 'unknown' = 'unknown';
+
+function broadcastBrowserSession() {
+  const payload = { state: browserSessionState, checkedAt: Date.now() };
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('browser:session-changed', payload);
+  }
+}
 
 const POPOVER_WIDTH = 520;
 const POPOVER_HEIGHT = 620;
@@ -229,14 +242,14 @@ function createTray() {
 function classifyStatus(result: ProbeResult): 'healthy' | 'warning' | 'critical' | 'failure' {
   const s = db.getSettings();
   const ep = db.listEndpoints().find(e => e.id === result.endpointId);
-  const cfg = ep?.type === 'health' ? s.health : s.feature;
+  const cfg = s[ep?.type ?? 'feature'];
   if (!result.ok) return 'failure';
   if (result.durationMs >= cfg.critical_ms) return 'critical';
   if (result.durationMs >= cfg.warning_ms) return 'warning';
   return 'healthy';
 }
 
-function parseImport(json: string, forceType?: 'health' | 'feature'): NewEndpoint[] {
+function parseImport(json: string, forceType?: EndpointType): NewEndpoint[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -265,7 +278,9 @@ function parseImport(json: string, forceType?: 'health' | 'feature'): NewEndpoin
       throw new Error(`endpoints[${i}].url이 비어있습니다.`);
     }
     const rawType = typeof ep.type === 'string' ? ep.type.toLowerCase() : '';
-    const type = forceType ?? (rawType === 'health' ? 'health' : 'feature');
+    const type: EndpointType =
+      forceType ??
+      (rawType === 'health' ? 'health' : rawType === 'browser' ? 'browser' : 'feature');
 
     result.push({
       method: typeof ep.method === 'string' ? ep.method : 'GET',
@@ -285,6 +300,13 @@ app.whenReady().then(() => {
   // build.appId 와 동일하게 맞춘다. (macOS/Linux 에선 사실상 no-op)
   app.setAppUserModelId('com.local.mac-api-monitor');
 
+  // Windows/Linux 는 Electron 기본 메뉴(File/Edit/View/Window/Help)가 창 안에 메뉴바로 붙는다.
+  // 트레이/popover 앱이라 불필요한 노이즈 → 숨긴다.
+  // macOS 는 시스템 메뉴바에 있고 ⌘Q·복사/붙여넣기 단축키를 제공하므로 기본 메뉴 유지.
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+  }
+
   if (process.platform === 'darwin') {
     app.dock?.hide();
   }
@@ -292,6 +314,8 @@ app.whenReady().then(() => {
   db = new Database();
   notifier = new Notifier(db);
   scheduler = new Scheduler(db, notifier);
+  browserRunner = new BrowserRunner();
+  scheduler.setBrowserProbe(browserRunner);
 
   seedIfEmpty(db);
 
@@ -310,6 +334,11 @@ app.on('window-all-closed', () => {
   // 메뉴바 앱은 윈도우 없어도 계속 동작. 종료는 트레이 우클릭 → 종료.
 });
 
+app.on('before-quit', () => {
+  // 브라우저 점검용 숨은 창/로그인 창 정리.
+  browserRunner?.destroy();
+});
+
 ipcMain.handle('endpoints:list', () => db.listEndpoints());
 ipcMain.handle('endpoints:add', (_e, ep: NewEndpoint) => {
   if (!ep || typeof ep.url !== 'string' || !ep.url.trim()) {
@@ -321,7 +350,7 @@ ipcMain.handle('endpoints:add', (_e, ep: NewEndpoint) => {
     label: ep.label?.trim() || ep.url.trim(),
     note: ep.note ?? null,
     group: ep.group ?? null,
-    type: ep.type === 'health' ? 'health' : 'feature',
+    type: ep.type === 'health' ? 'health' : ep.type === 'browser' ? 'browser' : 'feature',
   });
 });
 ipcMain.handle('endpoints:remove', (_e, id: number) => {
@@ -340,29 +369,29 @@ ipcMain.handle('measurements:recent', (_e, endpointId: number, limit: number) =>
   db.recentMeasurements(endpointId, limit),
 );
 
-ipcMain.handle('events:recent', (_e, type: 'health' | 'feature', limit: number) =>
+ipcMain.handle('events:recent', (_e, type: EndpointType, limit: number) =>
   db.recentAlarmEvents(type, limit),
 );
 
-ipcMain.handle('events:thresholdExceeded', (_e, type: 'health' | 'feature', limit: number) => {
+ipcMain.handle('events:thresholdExceeded', (_e, type: EndpointType, limit: number) => {
   const s = db.getSettings();
   const cfg = type === 'health' ? s.health : s.feature;
   return db.recentThresholdExceeded(type, cfg.warning_ms, cfg.critical_ms, limit);
 });
 
-ipcMain.handle('measurements:recentAll', (_e, type: 'health' | 'feature', perEndpoint: number) => {
+ipcMain.handle('measurements:recentAll', (_e, type: EndpointType, perEndpoint: number) => {
   const s = db.getSettings();
   const cfg = type === 'health' ? s.health : s.feature;
   return db.recentMeasurementsAll(type, cfg.warning_ms, cfg.critical_ms, perEndpoint);
 });
 
-ipcMain.handle('endpoints:stats', (_e, type: 'health' | 'feature', hours: number) => {
+ipcMain.handle('endpoints:stats', (_e, type: EndpointType, hours: number) => {
   const s = db.getSettings();
   const cfg = type === 'health' ? s.health : s.feature;
   return db.recentEndpointStats(type, hours, cfg.warning_ms);
 });
 
-ipcMain.handle('slack:test', (_e, type: 'health' | 'feature') => notifier.testSlack(type));
+ipcMain.handle('slack:test', (_e, type: EndpointType) => notifier.testSlack(type));
 
 ipcMain.handle('settings:get', () => db.getSettings());
 ipcMain.handle('settings:update', (_e, patch: SettingsPatch) => {
@@ -370,11 +399,29 @@ ipcMain.handle('settings:update', (_e, patch: SettingsPatch) => {
   const next = db.getSettings();
   scheduler.reconfigure(next);
   notifier.configure(next);
+  // 브라우저 점검을 끄면(비상정지) 숨은 창을 즉시 닫아 진행 중 navigate 까지 중단.
+  if (next.browser.checks_enabled === 0) browserRunner?.destroy();
 });
 
 ipcMain.handle('probe:now', async (_e, endpointId: number) => {
   return scheduler.probeOnce(endpointId);
 });
+
+// 브라우저 점검: 사람이 1회 로그인할 창을 띄운다 (세션은 persist 파티션에 저장).
+// 로그인 창이 로그인 페이지를 벗어나면(=로그인 성공) 자동 감지해 상태를 'ok' 로 broadcast.
+ipcMain.handle('browser:openLogin', () => {
+  const cfg = db.getSettings().browser;
+  return browserRunner.openLoginWindow(cfg.base_url, cfg.login_pattern, () => {
+    browserSessionState = 'ok';
+    broadcastBrowserSession();
+  });
+});
+
+// 브라우저 로그인 상태 조회 — main 이 추적 중인 값을 반환(프로빙 X). 실시간 갱신은 browser:session-changed 이벤트.
+ipcMain.handle('browser:sessionStatus', () => ({
+  state: browserSessionState,
+  checkedAt: Date.now(),
+}));
 
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (typeof url !== 'string') return;

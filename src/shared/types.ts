@@ -1,4 +1,4 @@
-export type EndpointType = 'health' | 'feature';
+export type EndpointType = 'health' | 'feature' | 'browser';
 
 export interface Endpoint {
   id: number;
@@ -37,6 +37,9 @@ export interface TypeSettings {
   warning_ms: number;
   critical_ms: number;
   stagger_ms: number;
+  base_url: string;
+  login_pattern: string;
+  checks_enabled: number;
   alarm_mode: AlarmMode;
   alarm_consecutive: number;
   alarm_window: number;
@@ -54,14 +57,24 @@ export interface TypeSettings {
 export interface Settings {
   health: TypeSettings;
   feature: TypeSettings;
+  browser: TypeSettings;
 }
 
 export type SettingsPatch = Partial<
-  Omit<Settings, 'health' | 'feature'> & {
+  Omit<Settings, 'health' | 'feature' | 'browser'> & {
     health: Partial<TypeSettings>;
     feature: Partial<TypeSettings>;
+    browser: Partial<TypeSettings>;
   }
 >;
+
+export type BrowserSessionState = 'ok' | 'expired' | 'unknown';
+
+export interface BrowserSessionStatus {
+  state: BrowserSessionState;
+  finalUrl?: string;
+  checkedAt: number;
+}
 
 export interface ProbeResult {
   endpointId: number;
@@ -122,6 +135,9 @@ declare global {
       getSettings: () => Promise<Settings>;
       updateSettings: (patch: SettingsPatch) => Promise<void>;
       probeNow: (endpointId: number) => Promise<ProbeResult | null>;
+      openBrowserLogin: () => Promise<{ ok: boolean; message: string }>;
+      browserSessionStatus: () => Promise<BrowserSessionStatus>;
+      onBrowserSessionChange: (cb: (s: BrowserSessionStatus) => void) => () => void;
       openMainWindow: () => Promise<void>;
       closePopover: () => Promise<void>;
       setPopoverPinned: (pinned: boolean) => Promise<void>;

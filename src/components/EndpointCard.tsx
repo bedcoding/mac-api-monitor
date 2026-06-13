@@ -43,7 +43,6 @@ export function EndpointCard({ endpoint, measurements, settings, onRemove }: Pro
         padding: 20,
         background: '#2a3038',
         minWidth: 0,
-        overflow: 'hidden',
       }}
     >
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, minWidth: 0 }}>

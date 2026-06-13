@@ -2,7 +2,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'node:path';
 
-export type EndpointType = 'health' | 'feature';
+export type EndpointType = 'health' | 'feature' | 'browser';
 
 export interface Endpoint {
   id: number;
@@ -72,6 +72,10 @@ export interface TypeSettings {
   warning_ms: number;
   critical_ms: number;
   stagger_ms: number;
+  // 브라우저 점검(type 'browser') 전용. 다른 type 에선 미사용(빈 문자열).
+  base_url: string; // 로그인 페이지 URL ('로그인 창 열기'가 여는 주소 + 로그인 리다이렉트 패턴 추출원)
+  login_pattern: string; // 최종 URL 이 이 문자열을 포함하면 "세션 만료"로 판정 (base_url 에서 자동 추출)
+  checks_enabled: number; // 0 = 이 type 자동 점검 비상정지. 기본 1. (현재 UI 는 browser 만 노출)
   alarm_mode: AlarmMode;
   alarm_consecutive: number; // consecutive 모드: 연속 N회
   alarm_window: number; // sliding 모드: 최근 N개 측정 윈도우
@@ -91,6 +95,7 @@ export interface TypeSettings {
 export interface Settings {
   health: TypeSettings;
   feature: TypeSettings;
+  browser: TypeSettings;
 }
 
 export interface NewEndpoint {
@@ -107,6 +112,9 @@ const DEFAULT_HEALTH: TypeSettings = {
   warning_ms: 500,
   critical_ms: 1_000,
   stagger_ms: 5_000,
+  base_url: '',
+  login_pattern: '',
+  checks_enabled: 1,
   alarm_mode: 'consecutive',
   alarm_consecutive: 2,
   alarm_window: 5,
@@ -126,6 +134,9 @@ const DEFAULT_FEATURE: TypeSettings = {
   warning_ms: 3_000,
   critical_ms: 7_000,
   stagger_ms: 1_000,
+  base_url: '',
+  login_pattern: '',
+  checks_enabled: 1,
   alarm_mode: 'cycle',
   alarm_consecutive: 10,
   alarm_window: 10,
@@ -140,9 +151,34 @@ const DEFAULT_FEATURE: TypeSettings = {
   retention_days: 7,
 };
 
+// 브라우저 점검: 진짜 페이지를 띄우므로 무겁고 flaky. 주기는 길게(5분),
+// 임계값은 페이지 로드 기준으로 넉넉히, 알람은 연속 2회 실패만(1회 헛알람 억제).
+const DEFAULT_BROWSER: TypeSettings = {
+  interval_ms: 300_000,
+  warning_ms: 4_000,
+  critical_ms: 10_000,
+  stagger_ms: 2_000,
+  base_url: '',
+  login_pattern: '/login',
+  checks_enabled: 1,
+  alarm_mode: 'consecutive',
+  alarm_consecutive: 2,
+  alarm_window: 5,
+  alarm_window_hits: 3,
+  alarm_cycle_percent: 60,
+  alarms_enabled: 0,
+  alarm_cooldown_ms: 10 * 60_000,
+  slack_mode: 'webhook',
+  slack_webhook_url: '',
+  slack_bot_token: '',
+  slack_channel: '',
+  retention_days: 7,
+};
+
 const DEFAULT_SETTINGS: Settings = {
   health: DEFAULT_HEALTH,
   feature: DEFAULT_FEATURE,
+  browser: DEFAULT_BROWSER,
 };
 
 interface EndpointRow {
@@ -163,7 +199,7 @@ function rowToEndpoint(r: EndpointRow): Endpoint {
     label: r.label,
     note: r.note,
     group: r.group_name,
-    type: r.type === 'health' ? 'health' : 'feature',
+    type: r.type === 'health' ? 'health' : r.type === 'browser' ? 'browser' : 'feature',
   };
 }
 
@@ -490,6 +526,9 @@ export class Database {
         warning_ms: Number(map[`${prefix}.warning_ms`] ?? legacy.warning_ms ?? def.warning_ms),
         critical_ms: Number(map[`${prefix}.critical_ms`] ?? legacy.critical_ms ?? def.critical_ms),
         stagger_ms: Number(map[`${prefix}.stagger_ms`] ?? def.stagger_ms),
+        base_url: map[`${prefix}.base_url`] ?? def.base_url,
+        login_pattern: map[`${prefix}.login_pattern`] ?? def.login_pattern,
+        checks_enabled: Number(map[`${prefix}.checks_enabled`] ?? def.checks_enabled),
         alarm_mode,
         alarm_consecutive: Number(
           map[`${prefix}.alarm_consecutive`] ?? legacy.alarm_consecutive ?? def.alarm_consecutive,
@@ -520,6 +559,7 @@ export class Database {
     return {
       health: readType('health', DEFAULT_HEALTH),
       feature: readType('feature', DEFAULT_FEATURE),
+      browser: readType('browser', DEFAULT_BROWSER),
     };
   }
 
@@ -530,7 +570,7 @@ export class Database {
 
     const flat: Array<[string, unknown]> = [];
     for (const [key, value] of Object.entries(patch)) {
-      if (key === 'health' || key === 'feature') {
+      if (key === 'health' || key === 'feature' || key === 'browser') {
         if (value && typeof value === 'object') {
           for (const [k, v] of Object.entries(value)) {
             flat.push([`${key}.${k}`, v]);
@@ -551,8 +591,9 @@ export class Database {
 }
 
 export type SettingsPatch = Partial<
-  Omit<Settings, 'health' | 'feature'> & {
+  Omit<Settings, 'health' | 'feature' | 'browser'> & {
     health: Partial<TypeSettings>;
     feature: Partial<TypeSettings>;
+    browser: Partial<TypeSettings>;
   }
 >;
