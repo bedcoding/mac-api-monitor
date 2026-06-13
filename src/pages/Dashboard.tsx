@@ -20,6 +20,18 @@ export const TYPE_LABEL: Record<EndpointType, string> = {
   browser: '브라우저',
 };
 
+// 브라우저 점검이 정상/실패를 어떻게 가리는지 — ⓘ 툴팁으로 안내(white-space: pre-line).
+const BROWSER_CRITERIA = `브라우저 점검 판단 기준
+
+🟢 정상 — 화면이 정상 응답(HTTP 200대)으로 뜨고 로그인 페이지로 튕기지 않음
+🟡 느림 — 진입은 됐지만 소요시간이 경고 임계값 초과
+🔴 실패 — 로드 실패 / HTTP 400·500대 / 세션 만료(로그인 페이지로 튕김)
+
+※ 세션 만료는 빨강으로 표시하되 슬랙 알람은 보내지 않습니다(장애 아님).
+※ 화면 안의 에러 메시지·요소 누락까지는 보지 않고, '진입 가능 여부'만 봅니다.
+
+'실제 동작 보기'를 켜면 점검용 브라우저 창이 떠서 화면을 실제로 여는 과정을 볼 수 있습니다.`;
+
 /** 조회 화면: 해당 type 의 endpoint 카드 + 차트 (그룹별 섹션) */
 export function MonitorList({
   refreshKey,
@@ -48,6 +60,9 @@ export function MonitorList({
     }
   });
   const [pointsInput, setPointsInput] = useState(() => String(graphPoints));
+  // 브라우저 전용: '실제 동작 보기'(점검 창 표시) + '지금 점검 실행'
+  const [browserVisible, setBrowserVisible] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
 
   async function load() {
     // endpoints / settings / measurements 를 모두 모은 뒤 한 번에 커밋한다.
@@ -92,10 +107,41 @@ export function MonitorList({
     }
   }, [graphPoints]);
 
+  // 브라우저 탭에서만: 점검 창 가시성을 main 과 동기화(탭 전환/재마운트, 사용자가 창 닫기 시에도 일치).
+  useEffect(() => {
+    if (filterType !== 'browser') return;
+    let alive = true;
+    window.api.isBrowserVisible().then(v => {
+      if (alive) setBrowserVisible(v);
+    });
+    const off = window.api.onBrowserVisibleChange(v => setBrowserVisible(v));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [filterType]);
+
   function applyPoints() {
     const n = clampPoints(Number(pointsInput));
     setGraphPoints(n);
     setPointsInput(String(n));
+  }
+
+  async function toggleBrowserVisible() {
+    const next = !browserVisible;
+    setBrowserVisible(next);
+    await window.api.setBrowserVisible(next);
+  }
+
+  async function runBrowserNow() {
+    setRunningNow(true);
+    try {
+      await window.api.runBrowserChecksNow();
+      await load();
+      onChange();
+    } finally {
+      setRunningNow(false);
+    }
   }
 
   async function onRemove(id: number) {
@@ -157,6 +203,22 @@ export function MonitorList({
 
   return (
     <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
+      {filterType === 'browser' && (
+        <div style={browserBar}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={browserVisible} onChange={toggleBrowserVisible} />
+            <span style={{ fontWeight: 600 }}>실제 동작 보기</span>
+          </label>
+          <span className="tt" style={{ display: 'inline-flex', cursor: 'help' }}>
+            <span style={infoBadge}>ⓘ 판단 기준</span>
+            <span className="tt-bubble">{BROWSER_CRITERIA}</span>
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={runBrowserNow} disabled={runningNow} className="btn-primary">
+            {runningNow ? '점검 중…' : '지금 점검 실행'}
+          </button>
+        </div>
+      )}
       {groups.map(([groupName, eps], gi) => (
         <div key={groupName} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }}>
           {/* 첫 그룹 줄에만 컨트롤을 함께 띄운다. 그룹 1개라 타이틀이 없으면 컨트롤만 우측 정렬. */}
@@ -333,6 +395,23 @@ const card: React.CSSProperties = {
   borderRadius: 10,
   padding: 14,
   background: '#2a3038',
+};
+
+const browserBar: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '10px 14px',
+  border: '1px solid #3a4150',
+  borderRadius: 10,
+  background: '#2a3038',
+  fontSize: 13,
+};
+
+const infoBadge: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.7,
+  borderBottom: '1px dotted #6b7280',
 };
 
 const selectStyle: React.CSSProperties = {

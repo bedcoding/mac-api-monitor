@@ -74,6 +74,10 @@ export class BrowserRunner {
   private loginWindow: BrowserWindow | null = null;
   private loginNavCleanup: (() => void) | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+  private visible = false; // '실제 동작 보기': 점검용 숨은 창을 보이게 할지
+
+  /** 점검 창 가시성이 (사용자가 창을 닫는 등으로) 바뀌면 알림 — 렌더러 체크박스 동기화용. */
+  onVisibleChange: ((visible: boolean) => void) | null = null;
 
   /** navigate 들을 한 번에 하나씩만 돌린다(한 창 공유). */
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
@@ -88,18 +92,45 @@ export class BrowserRunner {
 
   private ensureHidden(): BrowserWindow {
     if (this.hidden && !this.hidden.isDestroyed()) return this.hidden;
-    this.hidden = new BrowserWindow({
+    const win = new BrowserWindow({
       show: false,
       width: 1280,
       height: 900,
+      title: 'API Monitor — 브라우저 점검 창',
       webPreferences: {
         partition: PARTITION,
         backgroundThrottling: false, // 숨은 창이라도 타이머/렌더가 멈추지 않게
       },
     });
+    this.hidden = win;
     // 점검용 숨은 창은 팝업(window.open)을 전부 차단 — 페이지가 새 창을 띄워 폭주(옴닉사태)하는 것 원천 봉쇄.
-    this.hidden.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    return this.hidden;
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // '실제 동작 보기'로 보이던 창을 사용자가 직접 닫으면 = 보기 해제로 간주(체크박스 동기화).
+    win.on('closed', () => {
+      const wasVisible = this.visible;
+      this.hidden = null;
+      if (wasVisible) {
+        this.visible = false;
+        this.onVisibleChange?.(false);
+      }
+    });
+    // 점검 화면 진입을 눈으로 보는 모드면, (재생성된 창이라도) 포커스를 뺏지 않고 보이게.
+    if (this.visible) win.showInactive();
+    return win;
+  }
+
+  /** '실제 동작 보기' 토글: 점검용 창을 보이게/숨기게. 보일 땐 포커스를 뺏지 않는다(showInactive). */
+  setVisible(v: boolean) {
+    this.visible = v;
+    if (v) {
+      this.ensureHidden().showInactive();
+    } else if (this.hidden && !this.hidden.isDestroyed()) {
+      this.hidden.hide();
+    }
+  }
+
+  isVisible(): boolean {
+    return this.visible;
   }
 
   /**

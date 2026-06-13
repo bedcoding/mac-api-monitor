@@ -138,6 +138,10 @@ declare global {
       openBrowserLogin: () => Promise<{ ok: boolean; message: string }>;
       browserSessionStatus: () => Promise<BrowserSessionStatus>;
       onBrowserSessionChange: (cb: (s: BrowserSessionStatus) => void) => () => void;
+      setBrowserVisible: (visible: boolean) => Promise<void>;
+      isBrowserVisible: () => Promise<boolean>;
+      runBrowserChecksNow: () => Promise<number>;
+      onBrowserVisibleChange: (cb: (visible: boolean) => void) => () => void;
       openMainWindow: () => Promise<void>;
       closePopover: () => Promise<void>;
       setPopoverPinned: (pinned: boolean) => Promise<void>;

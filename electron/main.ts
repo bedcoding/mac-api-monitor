@@ -316,6 +316,12 @@ app.whenReady().then(() => {
   scheduler = new Scheduler(db, notifier);
   browserRunner = new BrowserRunner();
   scheduler.setBrowserProbe(browserRunner);
+  // '실제 동작 보기' 창을 사용자가 직접 닫으면 렌더러 체크박스도 풀리도록 broadcast.
+  browserRunner.onVisibleChange = (visible: boolean) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send('browser:visible-changed', { visible });
+    }
+  };
 
   seedIfEmpty(db);
 
@@ -422,6 +428,15 @@ ipcMain.handle('browser:sessionStatus', () => ({
   state: browserSessionState,
   checkedAt: Date.now(),
 }));
+
+// '실제 동작 보기': 점검용 창을 보이게/숨기게 + 현재 가시성 조회.
+ipcMain.handle('browser:setVisible', (_e, visible: boolean) => {
+  browserRunner.setVisible(!!visible);
+});
+ipcMain.handle('browser:isVisible', () => browserRunner.isVisible());
+
+// '지금 점검 실행': 등록된 브라우저 화면을 즉시 전부 1회 점검(순차) → 점검한 개수 반환.
+ipcMain.handle('browser:runNow', () => scheduler.probeManyOfType('browser'));
 
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (typeof url !== 'string') return;

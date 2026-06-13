@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('browser:session-changed', listener);
     return () => ipcRenderer.removeListener('browser:session-changed', listener);
   },
+  setBrowserVisible: (visible: boolean) => ipcRenderer.invoke('browser:setVisible', visible),
+  isBrowserVisible: () => ipcRenderer.invoke('browser:isVisible'),
+  runBrowserChecksNow: () => ipcRenderer.invoke('browser:runNow'),
+  onBrowserVisibleChange: (cb: (visible: boolean) => void) => {
+    const listener = (_e: unknown, payload: { visible: boolean }) => cb(payload.visible);
+    ipcRenderer.on('browser:visible-changed', listener);
+    return () => ipcRenderer.removeListener('browser:visible-changed', listener);
+  },
   openMainWindow: () => ipcRenderer.invoke('window:openMain'),
   closePopover: () => ipcRenderer.invoke('window:closePopover'),
   setPopoverPinned: (pinned: boolean) =>

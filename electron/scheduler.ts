@@ -94,6 +94,19 @@ export class Scheduler {
     return this.runProbe(ep);
   }
 
+  /** 해당 type 의 등록 endpoint 를 지금 즉시 전부 1회 점검(순차). '지금 점검 실행' 버튼용. */
+  async probeManyOfType(type: EndpointType): Promise<number> {
+    const eps = this.db.listEndpoints().filter(e => e.type === type);
+    for (const ep of eps) {
+      try {
+        await this.runProbe(ep);
+      } catch {
+        /* 개별 실패는 무시하고 다음 화면 계속 */
+      }
+    }
+    return eps.length;
+  }
+
   /**
    * 점검 1회 실행 → 측정 기록 + 알람 관찰 + 이벤트 emit.
    * 점검 방식(fetch / browser)만 전략으로 분기하고, 기록·알람 등 공통 처리는 여기 한 곳.
