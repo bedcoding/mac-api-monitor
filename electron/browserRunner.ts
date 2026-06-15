@@ -1,4 +1,4 @@
-import { app, BrowserWindow, type Session } from 'electron';
+import { app, BrowserWindow, session, type Session } from 'electron';
 
 /**
  * 브라우저 점검 실행기.
@@ -111,12 +111,17 @@ export class BrowserRunner {
   // 같은 사이트 API 실패 수집 상태 (한 번에 한 점검만 도는 직렬 큐라 인스턴스 1세트로 충분).
   private collecting = false; // 지금 점검 1회가 수집 중인지
   private failedApi: Array<{ url: string; status: number }> = [];
-  private monitorWcId = -1; // 점검용 숨은 창의 webContents id (로그인 창 요청과 구분)
   private runHost = ''; // 현재 점검 중인 페이지 host (same-site 판정 기준)
   private webRequestHooked = false; // 세션 webRequest 리스너 중복 등록 가드
 
   /** 점검 창 가시성이 (사용자가 창을 닫는 등으로) 바뀌면 알림 — 렌더러 체크박스 동기화용. */
   onVisibleChange: ((visible: boolean) => void) | null = null;
+
+  constructor() {
+    // 세션은 창 재생성/비상정지(destroy)와 무관하게 동일(persist:monitor)하므로 리스너를 여기서 1회만 등록.
+    // 점검 창 요청만 인정하기 위해 콜백 시점에 live webContents id 를 조회한다(stale 캐시 제거).
+    this.hookApiErrorCollection(session.fromPartition(PARTITION));
+  }
 
   /** navigate 들을 한 번에 하나씩만 돌린다(한 창 공유). */
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
@@ -142,8 +147,6 @@ export class BrowserRunner {
       },
     });
     this.hidden = win;
-    this.monitorWcId = win.webContents.id;
-    this.hookApiErrorCollection(win.webContents.session);
     // 점검용 숨은 창은 팝업(window.open)을 전부 차단 — 페이지가 새 창을 띄워 폭주(옴닉사태)하는 것 원천 봉쇄.
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     // '실제 동작 보기'로 보이던 창을 사용자가 직접 닫으면 = 보기 해제로 간주(체크박스 동기화).
@@ -164,13 +167,19 @@ export class BrowserRunner {
    * persist:monitor 세션의 XHR/fetch 응답을 엿봐, 점검 중(collecting) 같은 사이트 5xx·연결실패를 모은다.
    * 세션은 창 재생성과 무관하게 동일하므로 리스너는 1회만 등록(monitorWcId 로 현재 점검 창 요청만 인정).
    */
+  /** 콜백 시점의 살아있는 점검 창 webContents id (없으면 -1). 로그인 창 등 다른 창 요청을 거른다. */
+  private monitorWcId(): number {
+    return this.hidden && !this.hidden.isDestroyed() ? this.hidden.webContents.id : -1;
+  }
+
   private hookApiErrorCollection(ses: Session) {
     if (this.webRequestHooked) return;
     this.webRequestHooked = true;
     const filter = { urls: ['*://*/*'] };
+    const MAX_FAILED = 50; // 폭주 페이지가 실패 API 를 무한히 쌓는 것 방어 (메모리 상한)
     ses.webRequest.onCompleted(filter, details => {
-      if (!this.collecting) return;
-      if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId) return;
+      if (!this.collecting || this.failedApi.length >= MAX_FAILED) return;
+      if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId()) return;
       const rt = String(details.resourceType);
       if (rt !== 'xhr' && rt !== 'fetch') return;
       const status = details.statusCode ?? 0;
@@ -179,8 +188,8 @@ export class BrowserRunner {
       }
     });
     ses.webRequest.onErrorOccurred(filter, details => {
-      if (!this.collecting) return;
-      if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId) return;
+      if (!this.collecting || this.failedApi.length >= MAX_FAILED) return;
+      if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId()) return;
       const rt = String(details.resourceType);
       if (rt !== 'xhr' && rt !== 'fetch') return;
       if (/ABORTED/i.test(String(details.error))) return; // 페이지 이동 등으로 취소된 요청은 장애 아님
@@ -302,11 +311,15 @@ export class BrowserRunner {
       }
     } finally {
       this.collecting = false;
-      wc.off('console-message', onConsole);
-      wc.off('did-navigate', onNavigate);
+      // 비상정지(destroy)로 창이 점검 도중 파괴되면 off 가 throw → isDestroyed 가드.
+      if (!wc.isDestroyed()) {
+        wc.off('console-message', onConsole);
+        wc.off('did-navigate', onNavigate);
+      }
     }
 
     if (durationMs === 0) durationMs = Date.now() - start;
+    if (body) body = body.slice(0, 2048); // 모든 경로에서 본문 길이 상한 통일(긴 finalUrl 등 방어)
     return { ok, status, durationMs, body, loginRedirect, apiErrors: this.failedApi.slice() };
   }
 
@@ -377,7 +390,7 @@ export class BrowserRunner {
     if (this.loginWindow && !this.loginWindow.isDestroyed()) {
       const win = this.loginWindow;
       this.attachLoginDetection(win, url, loginPattern, onLogin);
-      win.loadURL(url, { userAgent: userAgent() });
+      win.loadURL(url, { userAgent: userAgent() }).catch(() => {}); // 로그인 페이지의 리다이렉트/ERR_ABORTED 는 정상
       win.show();
       win.focus();
       return { ok: true, message: '로그인 페이지를 다시 불러왔습니다.' };
@@ -395,7 +408,7 @@ export class BrowserRunner {
 
     this.attachLoginDetection(win, url, loginPattern, onLogin);
 
-    win.loadURL(url, { userAgent: userAgent() });
+    win.loadURL(url, { userAgent: userAgent() }).catch(() => {}); // 로그인 페이지의 리다이렉트/ERR_ABORTED 는 정상
     win.on('closed', () => {
       this.loginNavCleanup?.();
       this.loginWindow = null;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Endpoint, EndpointType, Measurement, Settings } from '../shared/types';
 import { EndpointCard } from '../components/EndpointCard';
 
@@ -68,10 +68,14 @@ export function MonitorList({
   const [browserVisible, setBrowserVisible] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
 
+  const loadSeq = useRef(0);
+
   async function load() {
     // endpoints / settings / measurements 를 모두 모은 뒤 한 번에 커밋한다.
     // 따로 setState 하면 "endpoints 만 있고 measurements 는 빈" 중간 렌더가 새어나가
     // 카드가 잠깐 "측정 대기 중" 으로 보였다가 그래프가 뿅 채워지는 깜빡임이 생긴다.
+    // 토큰으로 더 최신 load 가 시작되면 옛 응답을 폐기 — 10초 폴링/탭전환 시 out-of-order 덮어쓰기 방지.
+    const myToken = ++loadSeq.current;
     const eps = await window.api.listEndpoints();
     const nextSettings = await window.api.getSettings();
     const map: Record<number, Measurement[]> = {};
@@ -81,6 +85,7 @@ export function MonitorList({
         map[ep.id] = await window.api.recentMeasurements(ep.id, graphPoints);
       }),
     );
+    if (myToken !== loadSeq.current) return; // 더 최신 load 가 진행 중 → 이 결과는 폐기
     // React 18 자동 배칭: 같은 tick 의 setState 들이 한 렌더로 묶인다.
     setEndpoints(eps);
     setSettings(nextSettings);
@@ -218,8 +223,16 @@ export function MonitorList({
             <span className="tt-bubble">{BROWSER_CRITERIA}</span>
           </span>
           <span style={{ flex: 1 }} />
-          <button onClick={runBrowserNow} disabled={runningNow} className="btn-primary">
-            {runningNow ? '점검 중…' : '지금 점검 실행'}
+          <button
+            onClick={runBrowserNow}
+            disabled={runningNow || settings?.browser.checks_enabled === 0}
+            className="btn-primary"
+          >
+            {settings?.browser.checks_enabled === 0
+              ? '비상정지 중'
+              : runningNow
+                ? '점검 중…'
+                : '지금 점검 실행'}
           </button>
         </div>
       )}

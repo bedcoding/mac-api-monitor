@@ -78,32 +78,27 @@ export function Slack({ type }: { type: EndpointType }) {
 
         {cfg.slack_mode === 'webhook' ? (
           <Row label="Webhook URL">
-            <input
-              type="text"
+            <TextField
               placeholder="https://hooks.slack.com/services/..."
               value={cfg.slack_webhook_url}
-              onChange={e => save({ slack_webhook_url: e.target.value })}
-              style={{ width: '100%' }}
+              onCommit={v => save({ slack_webhook_url: v })}
             />
           </Row>
         ) : (
           <>
             <Row label="Bot Token">
-              <input
+              <TextField
                 type="password"
                 placeholder="xoxb-..."
                 value={cfg.slack_bot_token}
-                onChange={e => save({ slack_bot_token: e.target.value })}
-                style={{ width: '100%' }}
+                onCommit={v => save({ slack_bot_token: v })}
               />
             </Row>
             <Row label="채널">
-              <input
-                type="text"
+              <TextField
                 placeholder="#alerts 또는 C0XXXXXXX"
                 value={cfg.slack_channel}
-                onChange={e => save({ slack_channel: e.target.value })}
-                style={{ width: '100%' }}
+                onCommit={v => save({ slack_channel: v })}
               />
             </Row>
             <p style={{ fontSize: 11, opacity: 0.5, margin: '0 0 8px' }}>
@@ -363,6 +358,34 @@ function AlarmRow({ ev }: { ev: AlarmEvent }) {
         {fmtTs(ev.ts)}
       </div>
     </div>
+  );
+}
+
+/** 자격증명 입력 — 타이핑 중엔 로컬 상태만, 포커스를 떠날 때(blur) 1회 저장(키 입력마다 디스크 쓰기 방지). */
+function TextField({
+  value,
+  onCommit,
+  type = 'text',
+  placeholder,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  return (
+    <input
+      type={type}
+      placeholder={placeholder}
+      value={v}
+      onChange={e => setV(e.target.value)}
+      onBlur={() => {
+        if (v !== value) onCommit(v);
+      }}
+      style={{ width: '100%' }}
+    />
   );
 }
 

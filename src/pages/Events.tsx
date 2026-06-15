@@ -133,16 +133,29 @@ export function Events({
   const wantAll = !issuesOnly && view !== 'time';
 
   useEffect(() => {
+    // alive 가드: 10초 폴링/탭전환/필터변경이 겹쳐도 옛 응답이 최신 상태를 덮어쓰지 않게 한다
+    // (out-of-order 덮어쓰기 + unmount 후 setState 방지).
+    let alive = true;
     if (wantAll) {
-      window.api.recentMeasurementsAll(filterType, MAX_DOTS_PER_API).then(setEvents);
+      // 서버 병합 뷰가 endpoint 합산 최대 MAX_DOTS_PER_SERVER 개를 보여주므로 그만큼 받아온다
+      // (단일 endpoint 서버도 캡까지 채워 60/120 표시 불일치를 없앤다).
+      window.api.recentMeasurementsAll(filterType, MAX_DOTS_PER_SERVER).then(r => {
+        if (alive) setEvents(r);
+      });
     } else {
-      window.api.recentThresholdExceeded(filterType, 200).then(setEvents);
+      window.api.recentThresholdExceeded(filterType, 200).then(r => {
+        if (alive) setEvents(r);
+      });
     }
     window.api.recentEndpointStats(filterType, STATS_HOURS).then(arr => {
+      if (!alive) return;
       const m = new Map<number, EndpointStat>();
       for (const s of arr) m.set(s.endpoint_id, s);
       setStatsMap(m);
     });
+    return () => {
+      alive = false;
+    };
   }, [refreshKey, filterType, wantAll]);
 
   return (
@@ -171,7 +184,7 @@ export function Events({
         </label>
       )}
       {events.length === 0 ? (
-        <EmptyState />
+        <EmptyState wantAll={wantAll} />
       ) : view === 'time' ? (
         <TimeView events={events} onOpenBody={setModalEv} />
       ) : view === 'api' ? (
@@ -244,7 +257,7 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
   );
 }
 
-function EmptyState() {
+function EmptyState({ wantAll }: { wantAll: boolean }) {
   return (
     <section
       style={{
@@ -255,9 +268,13 @@ function EmptyState() {
         background: '#2a3038',
       }}
     >
-      <h2 style={{ fontSize: 18 }}>임계값 초과 이벤트가 없습니다</h2>
+      <h2 style={{ fontSize: 18 }}>
+        {wantAll ? '측정 데이터가 없습니다' : '임계값 초과 이벤트가 없습니다'}
+      </h2>
       <p style={{ opacity: 0.7 }}>
-        응답시간이 임계값을 넘었거나 호출이 실패한 경우 시간순으로 쌓입니다.
+        {wantAll
+          ? '아직 수집된 측정이 없습니다. 점검이 돌면 정상 포함 전체 측정이 여기에 표시됩니다.'
+          : '응답시간이 임계값을 넘었거나 호출이 실패한 경우 시간순으로 쌓입니다.'}
       </p>
     </section>
   );

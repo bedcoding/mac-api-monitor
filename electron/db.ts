@@ -1,57 +1,37 @@
 import BetterSqlite3 from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'node:path';
+import type {
+  EndpointType,
+  Endpoint,
+  Measurement,
+  SlackStatus,
+  AlarmEvent,
+  ThresholdEvent,
+  AlarmMode,
+  SlackMode,
+  TypeSettings,
+  Settings,
+  NewEndpoint,
+  SettingsPatch,
+} from '../src/shared/types';
 
-export type EndpointType = 'health' | 'feature' | 'browser';
-
-export interface Endpoint {
-  id: number;
-  method: string;
-  url: string;
-  label: string;
-  note: string | null;
-  group: string | null;
-  type: EndpointType;
-}
-
-export interface Measurement {
-  id: number;
-  endpoint_id: number;
-  ts: number;
-  duration_ms: number;
-  status: number;
-  ok: number;
-  body: string | null;
-}
-
-export type SlackStatus = 'sent' | 'failed' | 'skipped';
-
-export interface AlarmEvent {
-  id: number;
-  ts: number;
-  type: EndpointType;
-  group_name: string;
-  level: 'warning' | 'critical';
-  title: string;
-  detail: string;
-  slack_status: SlackStatus | null;
-  slack_error: string | null;
-}
-
-export interface ThresholdEvent {
-  id: number;
-  ts: number;
-  duration_ms: number;
-  status: number;
-  ok: number;
-  endpoint_id: number;
-  label: string;
-  url: string;
-  method: string;
-  group_name: string | null;
-  level: 'healthy' | 'warning' | 'critical';
-  body: string | null;
-}
+// 타입 단일 출처는 src/shared/types — 메인/프리로드/렌더러가 같은 정의를 공유하도록 여기서 재노출.
+// (electron 쪽은 종전처럼 './db' 에서 타입을 가져다 쓰면 된다)
+export type {
+  EndpointType,
+  Endpoint,
+  Measurement,
+  SlackStatus,
+  AlarmEvent,
+  ThresholdEvent,
+  AlarmMode,
+  SlackMode,
+  TypeSettings,
+  Settings,
+  NewEndpoint,
+  SettingsPatch,
+};
 
 export interface NewAlarmEvent {
   ts: number;
@@ -62,50 +42,6 @@ export interface NewAlarmEvent {
   detail: string;
   slack_status?: SlackStatus | null;
   slack_error?: string | null;
-}
-
-export type AlarmMode = 'consecutive' | 'sliding' | 'cycle';
-export type SlackMode = 'webhook' | 'bot';
-
-export interface TypeSettings {
-  interval_ms: number;
-  warning_ms: number;
-  critical_ms: number;
-  stagger_ms: number;
-  // 브라우저 점검(type 'browser') 전용. 다른 type 에선 미사용(빈 문자열).
-  base_url: string; // 로그인 페이지 URL ('로그인 창 열기'가 여는 주소 + 로그인 리다이렉트 패턴 추출원)
-  login_pattern: string; // 최종 URL 이 이 문자열을 포함하면 "세션 만료"로 판정 (base_url 에서 자동 추출)
-  checks_enabled: number; // 0 = 이 type 자동 점검 비상정지. 기본 1. (현재 UI 는 browser 만 노출)
-  fail_on_api_error: number; // browser 전용. 1이면 같은 사이트 API(XHR/fetch) 5xx/연결실패도 장애로. 기본 1.
-  alarm_mode: AlarmMode;
-  alarm_consecutive: number; // consecutive 모드: 연속 N회
-  alarm_window: number; // sliding 모드: 최근 N개 측정 윈도우
-  alarm_window_hits: number; // sliding 모드: 윈도우 안 임계 초과 M개
-  alarm_cycle_percent: number; // cycle 모드: 한 사이클에서 임계 초과 비율(%) 임계치
-  // 알람/슬랙 (type 별 독립)
-  alarms_enabled: number;
-  alarm_cooldown_ms: number;
-  slack_mode: SlackMode;
-  slack_webhook_url: string;
-  slack_bot_token: string;
-  slack_channel: string;
-  // 데이터 보관 (type 별 독립)
-  retention_days: number;
-}
-
-export interface Settings {
-  health: TypeSettings;
-  feature: TypeSettings;
-  browser: TypeSettings;
-}
-
-export interface NewEndpoint {
-  method: string;
-  url: string;
-  label: string;
-  note?: string | null;
-  group?: string | null;
-  type?: EndpointType;
 }
 
 const DEFAULT_HEALTH: TypeSettings = {
@@ -216,6 +152,29 @@ export class Database {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
+    // 시작 시 1회 retention 정리 — scheduler 가 꺼져 있거나 짧은 세션만 반복해도 보관기간이 지켜지도록.
+    this.pruneAllByRetention();
+  }
+
+  /** 세 type 모두 보관기간 경과분 정리. 시작 시 1회 + scheduler 주기에서 호출. */
+  pruneAllByRetention() {
+    try {
+      const s = this.getSettings();
+      for (const t of ['health', 'feature', 'browser'] as const) {
+        this.pruneOldByType(t, s[t].retention_days);
+      }
+    } catch (e) {
+      console.warn('[db] startup prune failed:', e);
+    }
+  }
+
+  /** 앱 종료 시 연결을 깨끗이 닫는다(WAL 체크포인트 포함). */
+  close() {
+    try {
+      this.db.close();
+    } catch {
+      /* ignore */
+    }
   }
 
   private migrate() {
@@ -236,6 +195,7 @@ export class Database {
         duration_ms INTEGER NOT NULL,
         status INTEGER NOT NULL,
         ok INTEGER NOT NULL,
+        body TEXT,
         FOREIGN KEY (endpoint_id) REFERENCES endpoints(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_measurements_endpoint_ts
@@ -283,6 +243,15 @@ export class Database {
     } catch {
       // already exists
     }
+    // 중복 endpoint(같은 method+url+type) 방지 — 재import 시 같은 화면이 두 번 등록되는 것 차단.
+    // 기존 DB 에 이미 중복이 있으면 인덱스 생성이 실패하므로 무시(그땐 UNIQUE 미적용).
+    try {
+      this.db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_endpoints_unique ON endpoints(method, url, type)`,
+      );
+    } catch {
+      // 기존 중복 존재 — 그대로 둠
+    }
   }
 
   listEndpoints(): Endpoint[] {
@@ -308,12 +277,15 @@ export class Database {
   }
 
   addEndpointsBulk(eps: NewEndpoint[]): number {
+    // 같은 (method,url,type) 중복은 무시 — 재import 해도 중복 행이 생기지 않게.
+    // 반환값은 입력 개수가 아니라 실제 삽입된 개수.
     const stmt = this.db.prepare(
-      'INSERT INTO endpoints (method, url, label, note, group_name, type) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO endpoints (method, url, label, note, group_name, type) VALUES (?, ?, ?, ?, ?, ?)',
     );
     const tx = this.db.transaction((rows: NewEndpoint[]) => {
+      let inserted = 0;
       for (const ep of rows) {
-        stmt.run(
+        const r = stmt.run(
           ep.method,
           ep.url,
           ep.label,
@@ -321,10 +293,11 @@ export class Database {
           ep.group ?? null,
           ep.type ?? 'feature',
         );
+        inserted += Number(r.changes);
       }
+      return inserted;
     });
-    tx(eps);
-    return eps.length;
+    return tx(eps) as number;
   }
 
   removeEndpoint(id: number) {
@@ -402,6 +375,13 @@ export class Database {
       .all(type, limit) as AlarmEvent[];
   }
 
+  /** type::group 별 마지막 알람 발생 시각 — 재시작 후 쿨다운 복원용. */
+  lastAlarmAtByGroup(): Array<{ type: string; group_name: string; ts: number }> {
+    return this.db
+      .prepare('SELECT type, group_name, MAX(ts) AS ts FROM alarm_events GROUP BY type, group_name')
+      .all() as Array<{ type: string; group_name: string; ts: number }>;
+  }
+
   /**
    * 임계값 초과 측정 이벤트 (알람 발동 여부와 무관).
    * - ok=0 (실패) 이거나
@@ -442,7 +422,9 @@ export class Database {
     warningMs: number,
     criticalMs: number,
     perEndpoint = 60,
+    sinceTs = 0,
   ): ThresholdEvent[] {
+    // sinceTs 로 스캔 범위를 시간으로 한정(ROW_NUMBER 가 type 전체를 풀스캔하는 비용 방지). 0 이면 전체.
     return this.db
       .prepare(
         `SELECT id, ts, duration_ms, status, ok, body,
@@ -458,12 +440,12 @@ export class Database {
                   ROW_NUMBER() OVER (PARTITION BY m.endpoint_id ORDER BY m.ts DESC) AS rn
            FROM measurements m
            JOIN endpoints e ON e.id = m.endpoint_id
-           WHERE e.type = ?
+           WHERE e.type = ? AND m.ts >= ?
          )
          WHERE rn <= ?
          ORDER BY ts DESC`,
       )
-      .all(criticalMs, warningMs, type, perEndpoint) as ThresholdEvent[];
+      .all(criticalMs, warningMs, type, sinceTs, perEndpoint) as ThresholdEvent[];
   }
 
   /**
@@ -594,11 +576,3 @@ export class Database {
     tx(flat);
   }
 }
-
-export type SettingsPatch = Partial<
-  Omit<Settings, 'health' | 'feature' | 'browser'> & {
-    health: Partial<TypeSettings>;
-    feature: Partial<TypeSettings>;
-    browser: Partial<TypeSettings>;
-  }
->;

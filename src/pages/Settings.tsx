@@ -21,8 +21,14 @@ export function Settings({ onlyType }: { onlyType: EndpointType }) {
   const cfg = settings[onlyType];
 
   async function save(patch: Partial<TypeSettings>) {
-    setSettings(prev => (prev ? { ...prev, [onlyType]: { ...prev[onlyType], ...patch } } : prev));
-    await window.api.updateSettings({ [onlyType]: patch });
+    // 성공한 뒤에만 로컬 반영 — 실패하면 입력(draft)이 유지돼 재시도 가능하고
+    // 로컬·디스크 상태가 갈리지 않는다(낙관적 반영 후 롤백 누락 버그 방지).
+    try {
+      await window.api.updateSettings({ [onlyType]: patch });
+      setSettings(prev => (prev ? { ...prev, [onlyType]: { ...prev[onlyType], ...patch } } : prev));
+    } catch (e) {
+      console.error('settings save failed', e);
+    }
   }
 
   return (

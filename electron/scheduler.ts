@@ -10,6 +10,8 @@ export interface ProbeResult {
   durationMs: number;
   status: number;
   ok: boolean;
+  /** 브라우저 점검에서 로그인 페이지로 튕김(세션 만료)을 감지했는지. fetch 점검은 항상 false. */
+  sessionExpired?: boolean;
 }
 
 const PRUNE_EVERY_MS = 50 * 60_000; // 50분마다 retention prune
@@ -19,6 +21,7 @@ export class Scheduler {
   private tracks: Record<EndpointType, Track>;
   private pruneTimer: NodeJS.Timeout | null = null;
   private browserProbe: BrowserProbe | null = null;
+  private inFlight = new Map<number, Promise<ProbeResult>>(); // 같은 endpoint 중복 점검 방지
 
   onProbeComplete: ((result: ProbeResult) => void) | null = null;
 
@@ -109,9 +112,19 @@ export class Scheduler {
 
   /**
    * 점검 1회 실행 → 측정 기록 + 알람 관찰 + 이벤트 emit.
-   * 점검 방식(fetch / browser)만 전략으로 분기하고, 기록·알람 등 공통 처리는 여기 한 곳.
+   * 같은 endpoint 가 이미 점검 중이면(수동 '지금 측정' + 예약 사이클이 겹치는 등) 진행 중 Promise 를
+   * 공유해 중복 측정/알람(연속 카운터 이중 증가)을 막는다.
    */
   async runProbe(ep: Endpoint): Promise<ProbeResult> {
+    const existing = this.inFlight.get(ep.id);
+    if (existing) return existing;
+    const p = this.doRunProbe(ep).finally(() => this.inFlight.delete(ep.id));
+    this.inFlight.set(ep.id, p);
+    return p;
+  }
+
+  /** 점검 방식(fetch / browser)만 전략으로 분기하고, 기록·알람 등 공통 처리는 여기 한 곳. */
+  private async doRunProbe(ep: Endpoint): Promise<ProbeResult> {
     const cfg = this.settings[ep.type];
     const raw =
       ep.type === 'browser'
@@ -140,6 +153,7 @@ export class Scheduler {
       durationMs: raw.durationMs,
       status: raw.status,
       ok: raw.ok,
+      sessionExpired: raw.suppressAlarm === true,
     };
     this.emitProbeComplete(result);
     return result;
@@ -189,7 +203,17 @@ class Track {
   }
 
   reconfigure() {
-    // 진행 중 사이클은 그대로 두고, 다음 사이클부터 새 설정 적용.
+    // 다음 사이클 타이머를 새 interval 로 다시 잡는다(진행 중 probe 는 건드리지 않음).
+    // 안 그러면 interval 을 줄여도 이미 예약된 옛 타이머가 끝날 때까지 변경이 반영되지 않는다.
+    if (this.stopped) return;
+    if (this.cycleTimer) {
+      clearTimeout(this.cycleTimer);
+      this.cycleTimer = null;
+    }
+    const last = this.scheduler.getDb().lastMeasurementTs(this.type);
+    const elapsed = last === null ? Infinity : Date.now() - last;
+    const remaining = Math.max(0, this.cfg().interval_ms - elapsed);
+    this.cycleTimer = setTimeout(() => this.runCycle(), remaining);
   }
 
   private runCycle() {

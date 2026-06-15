@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, type NativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, session, type NativeImage } from 'electron';
 import path from 'node:path';
 import { Database, type NewEndpoint, type SettingsPatch, type EndpointType } from './db';
 import { Scheduler, type ProbeResult } from './scheduler';
@@ -18,6 +18,14 @@ let popoverPinned = false;
 let lastBlurHideAt = 0;
 
 const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical' | 'failure'>();
+
+// 장시간 떠 있는 메뉴바 앱이라, 미처리 예외/거부가 프로세스 전체를 죽이지 않도록 로깅만 하고 살린다.
+process.on('unhandledRejection', reason => {
+  console.error('[main] unhandledRejection:', reason);
+});
+process.on('uncaughtException', err => {
+  console.error('[main] uncaughtException:', err);
+});
 
 // 브라우저 로그인 상태 — 로그인 창에서 로그인 성공이 감지되면 'ok' 로 바뀌고 모든 창에 broadcast.
 // (앱 재시작 시 'unknown' 으로 초기화 — 세션 쿠키는 살아있어도 유효성은 점검 화면 결과로 확인)
@@ -42,6 +50,23 @@ function rendererFile(): string {
   return path.join(__dirname, '../dist/index.html');
 }
 
+/** 렌더러 창의 외부 내비게이션/새 창을 차단 — 외부 링크는 shell.openExternal 로만 연다. */
+function hardenWindow(win: BrowserWindow) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    // 앱 자신의 렌더러(dev 서버 또는 file://)로의 내비게이션만 허용.
+    const dev = rendererURL();
+    const allowed = dev ? url.startsWith(dev) : url.startsWith('file://');
+    if (!allowed) {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
+  });
+}
+
 function createPopover() {
   popover = new BrowserWindow({
     width: POPOVER_WIDTH,
@@ -59,9 +84,11 @@ function createPopover() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
 
+  hardenWindow(popover);
   popover.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   if (rendererURL()) {
@@ -95,8 +122,11 @@ function openMainWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
+
+  hardenWindow(mainWindow);
 
   if (rendererURL()) {
     mainWindow.loadURL(rendererURL());
@@ -249,6 +279,19 @@ function classifyStatus(result: ProbeResult): 'healthy' | 'warning' | 'critical'
   return 'healthy';
 }
 
+/** http/https URL 만 허용 — 임의 scheme(file: 등)·내부망 점검으로의 오남용 방지. */
+function assertHttpUrl(url: string, label = 'url'): void {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(`${label}이(가) 올바른 URL이 아닙니다: ${url}`);
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error(`${label}은(는) http(s) URL만 허용됩니다: ${url}`);
+  }
+}
+
 function parseImport(json: string, forceType?: EndpointType): NewEndpoint[] {
   let parsed: unknown;
   try {
@@ -277,6 +320,7 @@ function parseImport(json: string, forceType?: EndpointType): NewEndpoint[] {
     if (!url) {
       throw new Error(`endpoints[${i}].url이 비어있습니다.`);
     }
+    assertHttpUrl(url, `endpoints[${i}].url`);
     const rawType = typeof ep.type === 'string' ? ep.type.toLowerCase() : '';
     const type: EndpointType =
       forceType ??
@@ -299,6 +343,21 @@ app.whenReady().then(() => {
   // Windows: 알림(토스트)이 올바른 앱 신원으로 뜨고 작업표시줄에서 묶이도록 AUMID 설정.
   // build.appId 와 동일하게 맞춘다. (macOS/Linux 에선 사실상 no-op)
   app.setAppUserModelId('com.local.mac-api-monitor');
+
+  // 렌더러(popover/main)에 CSP 적용. 브라우저 점검 창은 persist:monitor 파티션이라 영향 없음.
+  // dev 는 Vite HMR(eval/ws) 때문에 느슨, 프로덕션(loadFile)은 엄격하게.
+  const isDev = !!rendererURL();
+  const csp = isDev
+    ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: http://localhost:* http://127.0.0.1:*"
+    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'";
+  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    cb({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
 
   // Windows/Linux 는 Electron 기본 메뉴(File/Edit/View/Window/Help)가 창 안에 메뉴바로 붙는다.
   // 트레이/popover 앱이라 불필요한 노이즈 → 숨긴다.
@@ -328,6 +387,16 @@ app.whenReady().then(() => {
   scheduler.onProbeComplete = result => {
     lastStatusByEndpoint.set(result.endpointId, classifyStatus(result));
     updateTray();
+    // 브라우저 점검 결과로 로그인 세션 상태 갱신: 세션 만료 감지 시 'expired', 정상 진입 시 'ok'.
+    // (일반 장애는 세션 유효성과 무관하므로 상태를 바꾸지 않는다)
+    const ep = db.listEndpoints().find(e => e.id === result.endpointId);
+    if (ep?.type === 'browser') {
+      const next = result.sessionExpired ? 'expired' : result.ok ? 'ok' : browserSessionState;
+      if (next !== browserSessionState) {
+        browserSessionState = next;
+        broadcastBrowserSession();
+      }
+    }
   };
 
   scheduler.start();
@@ -341,8 +410,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  // 브라우저 점검용 숨은 창/로그인 창 정리.
+  // 점검 중단 → 브라우저 창 정리 → DB 연결 종료 순으로 깨끗이 종료(타이머/소켓/WAL 정리).
+  scheduler?.stop();
   browserRunner?.destroy();
+  db?.close();
 });
 
 ipcMain.handle('endpoints:list', () => db.listEndpoints());
@@ -350,10 +421,12 @@ ipcMain.handle('endpoints:add', (_e, ep: NewEndpoint) => {
   if (!ep || typeof ep.url !== 'string' || !ep.url.trim()) {
     throw new Error('url이 비어있습니다.');
   }
+  const url = ep.url.trim();
+  assertHttpUrl(url);
   return db.addEndpoint({
     method: ep.method ?? 'GET',
-    url: ep.url.trim(),
-    label: ep.label?.trim() || ep.url.trim(),
+    url,
+    label: ep.label?.trim() || url,
     note: ep.note ?? null,
     group: ep.group ?? null,
     type: ep.type === 'health' ? 'health' : ep.type === 'browser' ? 'browser' : 'feature',
@@ -366,7 +439,10 @@ ipcMain.handle('endpoints:remove', (_e, id: number) => {
   updateTray();
 });
 ipcMain.handle('endpoints:import', (_e, json: string, forceType?: string) => {
-  const ft = forceType === 'health' || forceType === 'feature' ? forceType : undefined;
+  const ft =
+    forceType === 'health' || forceType === 'feature' || forceType === 'browser'
+      ? forceType
+      : undefined;
   const eps = parseImport(json, ft);
   return db.addEndpointsBulk(eps);
 });
@@ -381,19 +457,19 @@ ipcMain.handle('events:recent', (_e, type: EndpointType, limit: number) =>
 
 ipcMain.handle('events:thresholdExceeded', (_e, type: EndpointType, limit: number) => {
   const s = db.getSettings();
-  const cfg = type === 'health' ? s.health : s.feature;
+  const cfg = s[type];
   return db.recentThresholdExceeded(type, cfg.warning_ms, cfg.critical_ms, limit);
 });
 
 ipcMain.handle('measurements:recentAll', (_e, type: EndpointType, perEndpoint: number) => {
   const s = db.getSettings();
-  const cfg = type === 'health' ? s.health : s.feature;
+  const cfg = s[type];
   return db.recentMeasurementsAll(type, cfg.warning_ms, cfg.critical_ms, perEndpoint);
 });
 
 ipcMain.handle('endpoints:stats', (_e, type: EndpointType, hours: number) => {
   const s = db.getSettings();
-  const cfg = type === 'health' ? s.health : s.feature;
+  const cfg = s[type];
   return db.recentEndpointStats(type, hours, cfg.warning_ms);
 });
 
@@ -436,7 +512,11 @@ ipcMain.handle('browser:setVisible', (_e, visible: boolean) => {
 ipcMain.handle('browser:isVisible', () => browserRunner.isVisible());
 
 // '지금 점검 실행': 등록된 브라우저 화면을 즉시 전부 1회 점검(순차) → 점검한 개수 반환.
-ipcMain.handle('browser:runNow', () => scheduler.probeManyOfType('browser'));
+// 비상정지(checks_enabled=0) 중이면 무시 — 자동 사이클(runCycle)과 동일하게 막는다.
+ipcMain.handle('browser:runNow', () => {
+  if (!db.getSettings().browser.checks_enabled) return 0;
+  return scheduler.probeManyOfType('browser');
+});
 
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (typeof url !== 'string') return;

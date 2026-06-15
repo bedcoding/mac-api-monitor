@@ -1,6 +1,6 @@
 {
   "name": "mac-api-monitor",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "private": true,
   "author": "Ahn",
   "description": "URL 목록을 주기적으로 fetch 해서 응답시간/상태 모니터링하는 데스크톱 앱 (macOS / Windows)",

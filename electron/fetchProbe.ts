@@ -28,6 +28,9 @@ export async function fetchProbe(ep: Endpoint, cfg: TypeSettings): Promise<RawPr
       } catch {
         body = null;
       }
+    } else {
+      // 성공 응답 본문은 저장하지 않으므로 즉시 취소해 undici 소켓을 풀로 반환(미소비 누수 방지).
+      await res.body?.cancel().catch(() => {});
     }
   } catch (e) {
     ok = false;
