@@ -160,29 +160,39 @@ export function Events({
 
   return (
     <section style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-      <ViewToggle view={view} onChange={setView} />
-      {view !== 'time' && (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          minHeight: 28,
+        }}
+      >
+        <ViewSegment view={view} onChange={setView} />
         <label
           style={{
             fontSize: 11,
-            opacity: 0.7,
+            opacity: view === 'time' ? 0.35 : 0.7,
             display: 'flex',
             alignItems: 'center',
             gap: 5,
-            justifySelf: 'end',
-            cursor: 'pointer',
+            cursor: view === 'time' ? 'default' : 'pointer',
             userSelect: 'none',
           }}
+          title={view === 'time' ? '시간순 보기는 이슈 로그만 표시합니다' : undefined}
         >
           <input
             type="checkbox"
-            checked={issuesOnly}
+            checked={view === 'time' ? true : issuesOnly}
+            disabled={view === 'time'}
             onChange={e => setIssuesOnly(e.target.checked)}
             style={{ margin: 0 }}
           />
           이슈만 보기
         </label>
-      )}
+      </div>
+      <div style={{ height: 1, background: '#2a313c', margin: '6px 0 8px' }} />
       {events.length === 0 ? (
         <EmptyState wantAll={wantAll} />
       ) : view === 'time' ? (
@@ -222,30 +232,31 @@ export function Events({
   );
 }
 
-function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
+/**
+ * 보기 방식 세그먼트(시간순/API별/서버별).
+ * 2단(TypeToggle)과 같은 세그먼트 메타포지만 위계를 한 단계 낮추기 위해
+ * 컨테이너 박스·배경 없이 활성 항목만 하단 2px 언더라인으로 표시한다.
+ */
+function ViewSegment({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 4,
-      }}
-    >
+    <div style={{ display: 'flex', gap: 2, userSelect: 'none' }} role="tablist" aria-label="보기 방식">
       {(Object.keys(VIEW_LABEL) as ViewMode[]).map(v => {
         const active = view === v;
         return (
           <button
             key={v}
             onClick={() => onChange(v)}
-            aria-pressed={active}
+            role="tab"
+            aria-selected={active}
             style={{
-              background: active ? '#2a3038' : 'transparent',
-              border: `1px solid ${active ? '#4a5568' : 'transparent'}`,
-              borderRadius: 6,
+              background: 'transparent',
+              border: 'none',
+              borderBottom: `2px solid ${active ? '#60a5fa' : 'transparent'}`,
+              borderRadius: 0,
               color: active ? '#e6e8ec' : '#8a94a6',
               fontSize: 12,
               fontWeight: active ? 600 : 500,
-              padding: '6px 0',
+              padding: '3px 6px',
               cursor: 'pointer',
             }}
           >

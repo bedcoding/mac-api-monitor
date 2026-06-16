@@ -149,24 +149,30 @@ function TypeToggle({
       style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-        gap: 8,
+        gap: 3,
+        background: '#1c2028',
+        border: '1px solid #2a313c',
+        borderRadius: 8,
+        padding: 3,
       }}
     >
       {(['health', 'feature', 'browser'] as EndpointType[]).map(t => {
         const active = type === t;
         return (
-          <div key={t} className="tt">
+          <div key={t} className="tt" style={{ display: 'flex' }}>
             <button
               onClick={() => onChange(t)}
+              aria-pressed={active}
               style={{
                 width: '100%',
-                background: active ? 'rgba(59,130,246,0.15)' : '#1c2028',
-                border: `1px solid ${active ? '#3b82f6' : '#3a4150'}`,
-                color: active ? '#60a5fa' : '#8a94a6',
+                background: active ? 'rgba(59,130,246,0.24)' : 'transparent',
+                border: `1px solid ${active ? '#3b82f6' : 'transparent'}`,
+                color: active ? '#93c5fd' : '#8a94a6',
                 fontSize: 13,
                 fontWeight: active ? 600 : 500,
-                padding: '8px 0',
-                borderRadius: 8,
+                padding: '5px 0',
+                borderRadius: 6,
+                cursor: 'pointer',
               }}
             >
               {TYPE_LABEL[t]}
