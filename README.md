@@ -55,7 +55,7 @@ yarn build        # 현재 OS 기준 빌드
 
 ### 왜 Playwright 가 아니라 내장 Chromium 인가
 
-Electron 은 이미 Chromium 을 내장한다. v1 목표가 "로그인 상태로 주요 화면이 정상 렌더되는지"(진입 점검)라, 별도 브라우저(수백 MB)를 받아 패키징·프로세스 관리하는 Playwright 보다 내장 크롬이 의존성·패키징·세션 처리 모두 단순하다. Playwright 의 강점(auto-wait·codegen·trace)은 복잡한 다단계 플로우에서 빛나는데 v1엔 그 시나리오가 없다. 복잡한 플로우가 필요해지면 실행부(`BrowserProbe` 인터페이스)만 Playwright 사이드카로 교체하면 된다 — 스케줄러·알람·UI·DB 는 그대로. (설계 전반: [docs/browser-checks-plan.md](docs/browser-checks-plan.md))
+Electron 은 이미 Chromium 을 내장한다. v1 목표가 "로그인 상태로 주요 화면이 정상 렌더되는지"(진입 점검)라, 별도 브라우저(수백 MB)를 받아 패키징·프로세스 관리하는 Playwright 보다 내장 크롬이 의존성·패키징·세션 처리 모두 단순하다. Playwright 의 강점(auto-wait·codegen·trace)은 복잡한 다단계 플로우에서 빛나는데 v1엔 그 시나리오가 없다. 복잡한 플로우가 필요해지면 실행부(`BrowserProbe` 인터페이스)만 Playwright 사이드카로 교체하면 된다 — 스케줄러·알람·UI·DB 는 그대로.
 
 ---
 
