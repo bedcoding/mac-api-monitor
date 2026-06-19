@@ -16,6 +16,9 @@ let notifier: Notifier;
 let browserRunner: BrowserRunner;
 let popoverPinned = false;
 let lastBlurHideAt = 0;
+// 종료 시퀀스 진입 플래그. 트레이/창이 파괴되는 도중의 클릭·콜백이
+// 파괴된 객체를 건드려 예외를 내고(→ uncaughtException에 삼켜져) 종료가 막히는 걸 방지.
+let isQuitting = false;
 
 const lastStatusByEndpoint = new Map<number, 'healthy' | 'warning' | 'critical' | 'failure'>();
 
@@ -99,7 +102,7 @@ function createPopover() {
 
   popover.on('blur', () => {
     if (popoverPinned) return;
-    if (popover && !popover.webContents.isDevToolsOpened()) {
+    if (popover && !popover.isDestroyed() && !popover.webContents.isDevToolsOpened()) {
       popover.hide();
       lastBlurHideAt = Date.now();
     }
@@ -178,7 +181,7 @@ function statusLevelAndCount(): { level: TrayLevel; count: number } {
 }
 
 function updateTray() {
-  if (!tray) return;
+  if (!tray || tray.isDestroyed()) return;
   const statuses = Array.from(lastStatusByEndpoint.values());
   const failure = statuses.filter(s => s === 'failure').length;
   const critical = statuses.filter(s => s === 'critical').length;
@@ -204,7 +207,7 @@ function updateTray() {
 }
 
 function positionPopover() {
-  if (!popover || !tray) return;
+  if (!popover || popover.isDestroyed() || !tray || tray.isDestroyed()) return;
   const trayBounds = tray.getBounds();
   const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y });
   const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
@@ -226,7 +229,9 @@ function positionPopover() {
 }
 
 function togglePopover() {
-  if (!popover) return;
+  // 종료 중이거나 popover가 이미 파괴된 뒤의 트레이 클릭은 무시.
+  // (popover 변수는 파괴돼도 null이 아니라, null 체크만으론 'Object has been destroyed'를 못 막음)
+  if (isQuitting || !popover || popover.isDestroyed()) return;
   if (popover.isVisible()) {
     popover.hide();
   } else {
@@ -403,6 +408,18 @@ app.whenReady().then(() => {
 
   createPopover();
   createTray();
+
+  // dev 좀비 방지: macOS는 Electron을 launchd로 reparent 하므로(부모 PID=1),
+  // Vite가 떠 있던 터미널을 닫아도 SIGHUP이 오지 않아 고아 프로세스로 살아남는다.
+  // Vite(부모)가 사라지면 stdin이 EOF/close가 되는 걸 신호로 받아 함께 종료한다.
+  // (터미널에 attach 된 동안엔 stdin이 안 닫히므로 dev 중 오작동 없음. 프로덕션은 isDev=false라 미적용)
+  if (isDev) {
+    const quitOnParentExit = () => app.quit();
+    process.stdin.on('end', quitOnParentExit);
+    process.stdin.on('close', quitOnParentExit);
+    process.stdin.on('error', quitOnParentExit);
+    process.stdin.resume();
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -410,10 +427,14 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   // 점검 중단 → 브라우저 창 정리 → DB 연결 종료 순으로 깨끗이 종료(타이머/소켓/WAL 정리).
   scheduler?.stop();
   browserRunner?.destroy();
   db?.close();
+  // 트레이를 명시적으로 제거하지 않으면 비정상 종료 시 메뉴바에 아이콘(좀비)이 남는다.
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
 });
 
 ipcMain.handle('endpoints:list', () => db.listEndpoints());
