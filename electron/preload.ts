@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { BrowserSessionStatus } from '../src/shared/types';
 
-// 렌더러가 신뢰하는 계약(src/shared/types 의 Window['api'])에 노출 객체를 묶어,
+// 렌더러가 신뢰하는 계약(src/shared/types의 Window['api'])에 노출 객체를 묶어,
 // 채널/인자/반환 타입이 어긋나면 런타임이 아니라 tsc 단계에서 잡히게 한다.
 type Api = Window['api'];
 

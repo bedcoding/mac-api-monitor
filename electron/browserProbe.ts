@@ -22,10 +22,10 @@ function apiErrorBody(apiErrors: Array<{ url: string; status: number }>): string
 
 /**
  * 브라우저 점검 (browser).
- * 등록된 화면 URL 을 로그인된 숨은 창(BrowserProbe 러너)으로 진입시켜 정상 렌더 여부를 본다.
- * - 세션 만료(로그인 페이지로 튕김)는 장애가 아니므로 suppressAlarm 으로 표시해 알람을 막는다.
- * - fail_on_api_error 가 켜져 있으면, 진입은 됐어도 같은 사이트 API(XHR/fetch)가 5xx/연결실패면
- *   실패로 잡는다(껍데기 HTML 은 200인데 데이터 API 가 터져 화면이 하얀 케이스). 이건 알람 대상.
+ * 등록된 화면 URL을 로그인된 숨은 창(BrowserProbe 러너)으로 진입시켜 정상 렌더 여부를 본다.
+ * - 세션 만료(로그인 페이지로 튕김)는 장애가 아니므로 suppressAlarm으로 표시해 알람을 막는다.
+ * - fail_on_api_error가 켜져 있으면, 진입은 됐어도 같은 사이트 API(XHR/fetch)가 5xx/연결실패면
+ *   실패로 잡는다(껍데기 HTML은 200인데 데이터 API가 터져 화면이 하얀 케이스). 이건 알람 대상.
  * 측정 기록/알람은 하지 않는다 — 원시 결과(RawProbe)만 반환.
  */
 export async function browserProbe(
@@ -54,7 +54,7 @@ export async function browserProbe(
       collectApiErrors: failOnApi,
     });
 
-    // 진입은 정상인데 같은 사이트 API 가 터진 경우 → 실패로 승격(알람 대상, suppressAlarm 안 함).
+    // 진입은 정상인데 같은 사이트 API가 터진 경우 → 실패로 승격(알람 대상, suppressAlarm 안 함).
     if (failOnApi && r.ok && r.apiErrors.length > 0) {
       return {
         ts: start,

@@ -1,11 +1,11 @@
 // ============================================================================
 //  ⚠️ Windows / Linux 전용 모듈 — macOS 에서는 호출되지 않음
 // ============================================================================
-//  macOS 는 tray.setTitle 로 메뉴바에 emoji+숫자를 직접 표시한다(setTitle 은 macOS 전용).
-//  Windows/Linux 는 setTitle 이 동작하지 않으므로, 여기서 상태색 원 + 개수 숫자를
-//  nativeImage 에 직접 그려 트레이 아이콘으로 보여준다.
-//  canvas/네이티브 의존성 없이 BGRA 픽셀 버퍼를 만들어 nativeImage.createFromBitmap 으로 넘긴다.
-//  (main.ts 에서 process.platform !== 'darwin' 일 때만 import/사용)
+//  macOS는 tray.setTitle로 메뉴바에 emoji+숫자를 직접 표시한다(setTitle은 macOS 전용).
+//  Windows/Linux는 setTitle이 동작하지 않으므로, 여기서 상태색 원 + 개수 숫자를
+//  nativeImage에 직접 그려 트레이 아이콘으로 보여준다.
+//  canvas/네이티브 의존성 없이 BGRA 픽셀 버퍼를 만들어 nativeImage.createFromBitmap으로 넘긴다.
+//  (main.ts에서 process.platform !== 'darwin' 일 때만 import/사용)
 // ============================================================================
 import { nativeImage, type NativeImage } from 'electron';
 
@@ -35,7 +35,7 @@ const FONT: Record<string, number[]> = {
 };
 
 const SIZE = 32; // 물리 픽셀 (HiDPI 대비)
-const SCALE_FACTOR = 2; // 논리 16×16 으로 표시
+const SCALE_FACTOR = 2; // 논리 16×16으로 표시
 
 function setPx(buf: Buffer, x: number, y: number, b: number, g: number, r: number, a: number) {
   if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return;
@@ -87,7 +87,7 @@ export function makeTrayIcon(level: TrayLevel, count: number): NativeImage {
     }
   }
 
-  // 개수 숫자 (0 이면 색 원만)
+  // 개수 숫자 (0이면 색 원만)
   if (count > 0) {
     const text = count > 99 ? '99' : String(count);
     // 노란 배경엔 어두운 글씨, 그 외엔 흰 글씨 (대비 확보)

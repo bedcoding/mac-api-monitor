@@ -97,7 +97,7 @@ export class Scheduler {
     return this.runProbe(ep);
   }
 
-  /** 해당 type 의 등록 endpoint 를 지금 즉시 전부 1회 점검(순차). '지금 점검 실행' 버튼용. */
+  /** 해당 type의 등록 endpoint를 지금 즉시 전부 1회 점검(순차). '지금 점검 실행' 버튼용. */
   async probeManyOfType(type: EndpointType): Promise<number> {
     const eps = this.db.listEndpoints().filter(e => e.type === type);
     for (const ep of eps) {
@@ -112,7 +112,7 @@ export class Scheduler {
 
   /**
    * 점검 1회 실행 → 측정 기록 + 알람 관찰 + 이벤트 emit.
-   * 같은 endpoint 가 이미 점검 중이면(수동 '지금 측정' + 예약 사이클이 겹치는 등) 진행 중 Promise 를
+   * 같은 endpoint가 이미 점검 중이면(수동 '지금 측정' + 예약 사이클이 겹치는 등) 진행 중 Promise를
    * 공유해 중복 측정/알람(연속 카운터 이중 증가)을 막는다.
    */
   async runProbe(ep: Endpoint): Promise<ProbeResult> {
@@ -162,7 +162,7 @@ export class Scheduler {
 
 /**
  * type 별 독립 트랙.
- * 한 사이클마다 자기 type 의 endpoint 들을 stagger 간격으로 순차 발사하고,
+ * 한 사이클마다 자기 type의 endpoint 들을 stagger 간격으로 순차 발사하고,
  * 사이클 시작 기준 interval_ms 후 다음 사이클 시작.
  */
 class Track {
@@ -203,8 +203,8 @@ class Track {
   }
 
   reconfigure() {
-    // 다음 사이클 타이머를 새 interval 로 다시 잡는다(진행 중 probe 는 건드리지 않음).
-    // 안 그러면 interval 을 줄여도 이미 예약된 옛 타이머가 끝날 때까지 변경이 반영되지 않는다.
+    // 다음 사이클 타이머를 새 interval로 다시 잡는다(진행 중 probe는 건드리지 않음).
+    // 안 그러면 interval을 줄여도 이미 예약된 옛 타이머가 끝날 때까지 변경이 반영되지 않는다.
     if (this.stopped) return;
     if (this.cycleTimer) {
       clearTimeout(this.cycleTimer);
@@ -222,7 +222,7 @@ class Track {
     const cfg = this.cfg();
 
     // 비상정지(checks_enabled=0): 자동 사이클을 건너뛰되, 다음 사이클은 예약해 둬서
-    // 다시 켜면 끊김 없이 이어진다. (현재 UI 는 browser 만 끄게 노출)
+    // 다시 켜면 끊김 없이 이어진다. (현재 UI는 browser만 끄게 노출)
     if (!cfg.checks_enabled) {
       this.cycleTimer = setTimeout(() => this.runCycle(), Math.max(5_000, cfg.interval_ms));
       return;
@@ -275,7 +275,7 @@ class Track {
       });
     }
 
-    // 다음 사이클: interval_ms 와 "stagger 로 다 쏘는 시간" 중 큰 쪽 + 약간 여유
+    // 다음 사이클: interval_ms와 "stagger로 다 쏘는 시간" 중 큰 쪽 + 약간 여유
     const spread = stagger * Math.max(0, endpoints.length - 1);
     const nextDelay = Math.max(cfg.interval_ms, spread + 1_000);
 

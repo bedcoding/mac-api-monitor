@@ -300,7 +300,7 @@ function AlarmRow({ ev }: { ev: AlarmEvent }) {
   const meta = ev.slack_status
     ? SLACK_STATUS_META[ev.slack_status]
     : { icon: '', label: '기록 없음', color: '#9aa6b8' };
-  // detail 은 "URL/요약 · 결과(상태·응답시간)" 형태. 첫 ' · ' 기준으로 갈라
+  // detail은 "URL/요약 · 결과(상태·응답시간)" 형태. 첫 ' · ' 기준으로 갈라
   // 앞(긴 URL)은 말줄임, 뒤(짧은 결과)는 다음 줄에 항상 보이게 한다.
   const dotIdx = ev.detail.indexOf(' · ');
   const detailHead = dotIdx >= 0 ? ev.detail.slice(0, dotIdx) : ev.detail;

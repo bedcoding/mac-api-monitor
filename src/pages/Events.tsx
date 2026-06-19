@@ -96,7 +96,7 @@ export function Events({
 }) {
   const [events, setEvents] = useState<ThresholdEvent[]>([]);
   const [statsMap, setStatsMap] = useState<Map<number, EndpointStat>>(new Map());
-  // 탭 전환 시 Events 가 unmount 되므로 보기 옵션은 localStorage 에 기억
+  // 탭 전환 시 Events가 unmount 되므로 보기 옵션은 localStorage에 기억
   const [view, setView] = useState<ViewMode>(() => {
     try {
       const v = localStorage.getItem(VIEW_STORAGE_KEY);
@@ -122,9 +122,9 @@ export function Events({
     }
   }, [view, issuesOnly]);
   // 모달은 이벤트 스냅샷을 들고 최상위에서 렌더 — 10초 폴링으로
-  // dot 이 리스트 밖으로 밀려 unmount 돼도 열린 모달이 유지된다.
+  // dot이 리스트 밖으로 밀려 unmount 돼도 열린 모달이 유지된다.
   const [modalEv, setModalEv] = useState<ThresholdEvent | null>(null);
-  // API 타임라인 모달 (카드 클릭 시 해당 API 의 최근 24시간 측정 전체)
+  // API 타임라인 모달 (카드 클릭 시 해당 API의 최근 24시간 측정 전체)
   const [timelineGroup, setTimelineGroup] = useState<ApiGroup | null>(null);
   // 서버 타임라인 모달 (서버별 dot 박스 클릭 시 그 서버 전체 API 통합 타임라인)
   const [serverTimeline, setServerTimeline] = useState<ServerGroup | null>(null);
@@ -499,7 +499,7 @@ function ApiCard({
 }) {
   const dotBoxRef = useRef<HTMLDivElement>(null);
   const perRow = useDotsPerRow(dotBoxRef, 20);
-  // group.events 는 최신순(ts DESC). 최근 N개를 자른 뒤 뒤집어 왼쪽=과거, 오른쪽=최신.
+  // group.events는 최신순(ts DESC). 최근 N개를 자른 뒤 뒤집어 왼쪽=과거, 오른쪽=최신.
   // 표시 개수는 한 줄 dot 수의 배수로 잘라 마지막 줄을 꽉 채운다.
   const visible = group.events.slice(0, dotCap(perRow, MAX_DOTS_PER_API)).reverse();
   const last = group.events[0];
@@ -673,10 +673,10 @@ function DotEvent({
   const cat = categorize(ev);
   const color = CATEGORY_COLOR[cat];
 
-  // dot 이 수백~수천 개 깔리는 모달에서 tt-bubble 본문을 항상 DOM 에 두면
-  // 노드 수가 5~6배로 불어난다. hover 한 dot 만 본문을 렌더.
-  // 툴팁은 position:fixed 로 viewport 기준에 띄운다 — 모달 본문의 overflow:auto 에
-  // 갇혀 잘리는 걸 막는다. dot 위치는 getBoundingClientRect 로 잡아 좌표를 정한다.
+  // dot이 수백~수천 개 깔리는 모달에서 tt-bubble 본문을 항상 DOM에 두면
+  // 노드 수가 5~6배로 불어난다. hover 한 dot만 본문을 렌더.
+  // 툴팁은 position:fixed로 viewport 기준에 띄운다 — 모달 본문의 overflow:auto에
+  // 갇혀 잘리는 걸 막는다. dot 위치는 getBoundingClientRect로 잡아 좌표를 정한다.
   const onEnter = () => {
     setHovered(true);
     const el = wrapRef.current;
@@ -785,8 +785,8 @@ const PAGE_SIZE = 240;
 
 /**
  * 모달 안의 dot 타임라인을 페이지로 나눠 그린다.
- * events 는 ts ASC(과거→최신). 최신 측정이 마지막 페이지라 모달을 열면 최신부터 보이고,
- * '이전' 으로 과거를 거슬러 본다. '직전 기록과 간격' 은 페이지가 아니라 전체 배열 인덱스
+ * events는 ts ASC(과거→최신). 최신 측정이 마지막 페이지라 모달을 열면 최신부터 보이고,
+ * '이전'으로 과거를 거슬러 본다. '직전 기록과 간격'은 페이지가 아니라 전체 배열 인덱스
  * 기준으로 계산해 페이지 경계에서도 간격이 끊기지 않는다.
  */
 function PagedDots({
@@ -869,7 +869,7 @@ function TimelineModal({
       window.api.getSettings(),
     ]).then(([ms, settings]) => {
       const cfg = settings[type];
-      // recentMeasurements 는 ts ASC — 왼쪽=과거 그대로 사용
+      // recentMeasurements는 ts ASC — 왼쪽=과거 그대로 사용
       setEvents(
         ms.map(m => ({
           id: m.id,
@@ -990,9 +990,9 @@ function ServerTimelineModal({
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  // server.events 는 메인 화면이 이미 들고 있는 측정(ts DESC, level 채워짐).
-  // 추가 fetch 없이 그걸 그대로 펼친다 — 메인이 cap 으로 잘라 보여준 걸 모달은 전부.
-  // ts ASC(왼쪽=과거) 로 뒤집고, 많으면 PagedDots 가 페이지로 나눠 그린다.
+  // server.events는 메인 화면이 이미 들고 있는 측정(ts DESC, level 채워짐).
+  // 추가 fetch 없이 그걸 그대로 펼친다 — 메인이 cap으로 잘라 보여준 걸 모달은 전부.
+  // ts ASC(왼쪽=과거)로 뒤집고, 많으면 PagedDots가 페이지로 나눠 그린다.
   const total = server.events.length;
   const events = useMemo(() => server.events.slice().reverse(), [server.events]);
 
@@ -1386,7 +1386,7 @@ function ServerMergedSection({
   const dotBoxRef = useRef<HTMLDivElement>(null);
   const perRow = useDotsPerRow(dotBoxRef, 24);
   const headingId = `srvm-${server.name.replace(/\s+/g, '_')}`;
-  // events 는 최신순(ts DESC). 최근 N개를 자른 뒤 뒤집어 왼쪽=과거, 오른쪽=최신.
+  // events는 최신순(ts DESC). 최근 N개를 자른 뒤 뒤집어 왼쪽=과거, 오른쪽=최신.
   // 표시 개수는 한 줄 dot 수의 배수로 잘라 마지막 줄을 꽉 채운다.
   const visible = server.events.slice(0, dotCap(perRow, MAX_DOTS_PER_SERVER)).reverse();
 

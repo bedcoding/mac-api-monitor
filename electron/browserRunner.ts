@@ -8,14 +8,14 @@ import { app, BrowserWindow, session, type Session } from 'electron';
  * 숨은 창으로 각 화면을 navigate 하기만 한다. 세션이 디스크에 영속되므로 앱을 껐다 켜도
  * 로그인이 유지된다.
  *
- * - run(): 화면 1개 진입 점검. 동시에 여러 navigate 가 한 창에서 충돌하지 않도록 순차 큐로 직렬화.
+ * - run(): 화면 1개 진입 점검. 동시에 여러 navigate가 한 창에서 충돌하지 않도록 순차 큐로 직렬화.
  * - openLoginWindow(): 보이는 창을 띄워 사람이 로그인하게 한다. 창이 로그인 페이지를 벗어나면 로그인 성공으로 감지.
  */
 
 const PARTITION = 'persist:monitor';
 
-// 정상 진입으로 판정된 뒤, SPA 가 뒤이어 쏘는 데이터 API 호출이 끝날 시간을 더 둔다.
-// 이 동안 같은 사이트의 XHR/fetch 5xx 를 수집한다. (durationMs 에는 포함하지 않음)
+// 정상 진입으로 판정된 뒤, SPA가 뒤이어 쏘는 데이터 API 호출이 끝날 시간을 더 둔다.
+// 이 동안 같은 사이트의 XHR/fetch 5xx를 수집한다. (durationMs에는 포함하지 않음)
 const API_OBSERVE_MS = 2000;
 
 export interface BrowserRunResult {
@@ -42,7 +42,7 @@ function registrableDomain(host: string): string {
   return lastTwo;
 }
 
-/** 요청 URL 이 점검 대상 페이지와 "같은 사이트"인지 — host 동일 또는 등록 가능 도메인 공유. 판정 불가 시 false(오탐 방지). */
+/** 요청 URL이 점검 대상 페이지와 "같은 사이트"인지 — host 동일 또는 등록 가능 도메인 공유. 판정 불가 시 false(오탐 방지). */
 function sameSite(reqUrl: string, pageHost: string): boolean {
   if (!pageHost) return false;
   try {
@@ -61,7 +61,7 @@ function platformToken(): string {
   return 'X11; Linux x86_64';
 }
 
-/** Electron 기본 UA 에는 "Electron/..." 토큰이 박혀 일부 사이트가 다르게 굴 수 있다. 평범한 Chrome 처럼 보이게. */
+/** Electron 기본 UA에는 "Electron/..." 토큰이 박혀 일부 사이트가 다르게 굴 수 있다. 평범한 Chrome처럼 보이게. */
 function userAgent(): string {
   const chrome = process.versions.chrome || '120.0.0.0';
   return `Mozilla/5.0 (${platformToken()}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chrome} Safari/537.36`;
@@ -71,7 +71,7 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** p 가 ms 안에 안 끝나면 onTimeout 호출 후 reject. */
+/** p가 ms 안에 안 끝나면 onTimeout 호출 후 reject. */
 function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let done = false;
@@ -119,7 +119,7 @@ export class BrowserRunner {
 
   constructor() {
     // 세션은 창 재생성/비상정지(destroy)와 무관하게 동일(persist:monitor)하므로 리스너를 여기서 1회만 등록.
-    // 점검 창 요청만 인정하기 위해 콜백 시점에 live webContents id 를 조회한다(stale 캐시 제거).
+    // 점검 창 요청만 인정하기 위해 콜백 시점에 live webContents id를 조회한다(stale 캐시 제거).
     this.hookApiErrorCollection(session.fromPartition(PARTITION));
   }
 
@@ -165,7 +165,7 @@ export class BrowserRunner {
 
   /**
    * persist:monitor 세션의 XHR/fetch 응답을 엿봐, 점검 중(collecting) 같은 사이트 5xx·연결실패를 모은다.
-   * 세션은 창 재생성과 무관하게 동일하므로 리스너는 1회만 등록(monitorWcId 로 현재 점검 창 요청만 인정).
+   * 세션은 창 재생성과 무관하게 동일하므로 리스너는 1회만 등록(monitorWcId로 현재 점검 창 요청만 인정).
    */
   /** 콜백 시점의 살아있는 점검 창 webContents id (없으면 -1). 로그인 창 등 다른 창 요청을 거른다. */
   private monitorWcId(): number {
@@ -176,7 +176,7 @@ export class BrowserRunner {
     if (this.webRequestHooked) return;
     this.webRequestHooked = true;
     const filter = { urls: ['*://*/*'] };
-    const MAX_FAILED = 50; // 폭주 페이지가 실패 API 를 무한히 쌓는 것 방어 (메모리 상한)
+    const MAX_FAILED = 50; // 폭주 페이지가 실패 API를 무한히 쌓는 것 방어 (메모리 상한)
     ses.webRequest.onCompleted(filter, details => {
       if (!this.collecting || this.failedApi.length >= MAX_FAILED) return;
       if (details.webContentsId !== undefined && details.webContentsId !== this.monitorWcId()) return;
@@ -243,7 +243,7 @@ export class BrowserRunner {
     wc.on('console-message', onConsole);
     wc.on('did-navigate', onNavigate);
 
-    // 같은 사이트 API 실패 수집 시작 (실제 push 는 ensureHidden 에 등록된 webRequest 리스너가 한다).
+    // 같은 사이트 API 실패 수집 시작 (실제 push는 ensureHidden에 등록된 webRequest 리스너가 한다).
     this.failedApi = [];
     try {
       this.runHost = new URL(url).hostname;
@@ -258,7 +258,7 @@ export class BrowserRunner {
     let loginRedirect = false;
     let durationMs = 0;
 
-    // 정상 진입으로 판정됐을 때만, 데이터 API 호출이 끝날 시간을 더 줘서 5xx 를 수집.
+    // 정상 진입으로 판정됐을 때만, 데이터 API 호출이 끝날 시간을 더 줘서 5xx를 수집.
     // durationMs(속도 지표)는 이 대기 전에 이미 확정하므로 부풀지 않는다.
     const observeApi = async () => {
       if (opts.collectApiErrors) await delay(API_OBSERVE_MS);
@@ -287,8 +287,8 @@ export class BrowserRunner {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // 리다이렉트로 원래 내비게이션이 교체되면 ERR_ABORTED 가 나지만 실제 페이지는 떴을 수 있다.
-      // 이때는 실패로 단정하지 말고 최종 URL 로 다시 판정한다.
+      // 리다이렉트로 원래 내비게이션이 교체되면 ERR_ABORTED가 나지만 실제 페이지는 떴을 수 있다.
+      // 이때는 실패로 단정하지 말고 최종 URL로 다시 판정한다.
       if (/ERR_ABORTED/i.test(msg)) {
         await delay(600);
         durationMs = Date.now() - start;
@@ -311,7 +311,7 @@ export class BrowserRunner {
       }
     } finally {
       this.collecting = false;
-      // 비상정지(destroy)로 창이 점검 도중 파괴되면 off 가 throw → isDestroyed 가드.
+      // 비상정지(destroy)로 창이 점검 도중 파괴되면 off가 throw → isDestroyed 가드.
       if (!wc.isDestroyed()) {
         wc.off('console-message', onConsole);
         wc.off('did-navigate', onNavigate);
@@ -325,8 +325,8 @@ export class BrowserRunner {
 
   /**
    * 로그인 성공 자동 감지를 붙인다(기존 감지가 있으면 갈아끼움).
-   * 같은 사이트(origin) 안에서 로그인 경로를 벗어나면 = 로그인 성공으로 보고 onLogin() 을 1회 호출.
-   * SNS 로그인 중 외부 도메인(kakao 등)으로 가는 건 origin 이 달라 무시된다.
+   * 같은 사이트(origin) 안에서 로그인 경로를 벗어나면 = 로그인 성공으로 보고 onLogin()을 1회 호출.
+   * SNS 로그인 중 외부 도메인(kakao 등)으로 가는 건 origin이 달라 무시된다.
    */
   private attachLoginDetection(
     win: BrowserWindow,
@@ -334,7 +334,7 @@ export class BrowserRunner {
     loginPattern: string,
     onLogin: () => void,
   ) {
-    this.loginNavCleanup?.(); // 재오픈 시 이전 감지(fired=true 로 굳은 것 포함) 제거하고 새로 시작
+    this.loginNavCleanup?.(); // 재오픈 시 이전 감지(fired=true로 굳은 것 포함) 제거하고 새로 시작
     let baseOrigin = '';
     try {
       baseOrigin = new URL(url).origin;
@@ -346,7 +346,7 @@ export class BrowserRunner {
     const setUrlTitle = () => {
       if (!win.isDestroyed()) win.setTitle(win.webContents.getURL() || url);
     };
-    // 페이지가 document.title 로 창 제목을 덮어쓰는 것 막고 URL 을 유지.
+    // 페이지가 document.title로 창 제목을 덮어쓰는 것 막고 URL을 유지.
     const onTitle = (e: { preventDefault: () => void }) => {
       e.preventDefault();
       setUrlTitle();
@@ -390,7 +390,7 @@ export class BrowserRunner {
     if (this.loginWindow && !this.loginWindow.isDestroyed()) {
       const win = this.loginWindow;
       this.attachLoginDetection(win, url, loginPattern, onLogin);
-      win.loadURL(url, { userAgent: userAgent() }).catch(() => {}); // 로그인 페이지의 리다이렉트/ERR_ABORTED 는 정상
+      win.loadURL(url, { userAgent: userAgent() }).catch(() => {}); // 로그인 페이지의 리다이렉트/ERR_ABORTED는 정상
       win.show();
       win.focus();
       return { ok: true, message: '로그인 페이지를 다시 불러왔습니다.' };
@@ -408,7 +408,7 @@ export class BrowserRunner {
 
     this.attachLoginDetection(win, url, loginPattern, onLogin);
 
-    win.loadURL(url, { userAgent: userAgent() }).catch(() => {}); // 로그인 페이지의 리다이렉트/ERR_ABORTED 는 정상
+    win.loadURL(url, { userAgent: userAgent() }).catch(() => {}); // 로그인 페이지의 리다이렉트/ERR_ABORTED는 정상
     win.on('closed', () => {
       this.loginNavCleanup?.();
       this.loginWindow = null;

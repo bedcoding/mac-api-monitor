@@ -391,9 +391,9 @@ function RetentionCard({
  * ────────────────────────────────────────────────────────── */
 
 /**
- * 로그인 페이지 URL 에서 '세션 만료' 판정 패턴(경로)을 자동 추출.
+ * 로그인 페이지 URL에서 '세션 만료' 판정 패턴(경로)을 자동 추출.
  * 로그인스러운 경로(login/signin/auth)일 때만 채택 — 홈 등 일반 경로를 넣었을 때
- * 모든 페이지가 '만료'로 오판되는 것을 막고 안전한 기본값 '/login' 으로 떨어진다.
+ * 모든 페이지가 '만료'로 오판되는 것을 막고 안전한 기본값 '/login'으로 떨어진다.
  */
 function loginPatternFrom(url: string): string {
   try {
@@ -418,7 +418,7 @@ function BrowserConfigCard({
 
   useEffect(() => setBaseUrl(cfg.base_url), [cfg.base_url]);
 
-  // 로그인 상태: 초기엔 main 의 추적값을 받고, 로그인 창에서 로그인 감지 시 push 로 자동 갱신.
+  // 로그인 상태: 초기엔 main의 추적값을 받고, 로그인 창에서 로그인 감지 시 push로 자동 갱신.
   useEffect(() => {
     window.api.browserSessionStatus().then(setSession);
     return window.api.onBrowserSessionChange(setSession);
@@ -472,7 +472,7 @@ function BrowserConfigCard({
         </label>
       </div>
 
-      {/* 데이터 API 실패 감지 — 껍데기 HTML 은 200이어도 같은 도메인 API 가 터지면 실패로. */}
+      {/* 데이터 API 실패 감지 — 껍데기 HTML은 200이어도 같은 도메인 API가 터지면 실패로. */}
       <div
         style={{
           display: 'flex',

@@ -27,8 +27,8 @@ process.on('uncaughtException', err => {
   console.error('[main] uncaughtException:', err);
 });
 
-// 브라우저 로그인 상태 — 로그인 창에서 로그인 성공이 감지되면 'ok' 로 바뀌고 모든 창에 broadcast.
-// (앱 재시작 시 'unknown' 으로 초기화 — 세션 쿠키는 살아있어도 유효성은 점검 화면 결과로 확인)
+// 브라우저 로그인 상태 — 로그인 창에서 로그인 성공이 감지되면 'ok'로 바뀌고 모든 창에 broadcast.
+// (앱 재시작 시 'unknown'으로 초기화 — 세션 쿠키는 살아있어도 유효성은 점검 화면 결과로 확인)
 let browserSessionState: 'ok' | 'expired' | 'unknown' = 'unknown';
 
 function broadcastBrowserSession() {
@@ -146,8 +146,8 @@ function openMainWindow() {
 }
 
 function trayIconImage(): NativeImage {
-  // macOS: 빈 template 이미지 + setTitle 로 메뉴바에 emoji 표시.
-  // Windows/Linux: setTitle 이 동작하지 않으므로 상태색 원(+개수) 아이콘을 직접 그린다.
+  // macOS: 빈 template 이미지 + setTitle로 메뉴바에 emoji 표시.
+  // Windows/Linux: setTitle이 동작하지 않으므로 상태색 원(+개수) 아이콘을 직접 그린다.
   if (process.platform === 'darwin') {
     const img = nativeImage.createEmpty();
     img.setTemplateImage(true);
@@ -213,8 +213,8 @@ function positionPopover() {
   let x = Math.round(trayBounds.x + trayBounds.width / 2 - POPOVER_WIDTH / 2);
   x = Math.max(dx + 8, Math.min(x, dx + dw - POPOVER_WIDTH - 8));
 
-  // macOS 는 메뉴바가 화면 상단이라 트레이 '아래'에 띄운다.
-  // Windows/Linux 는 트레이가 보통 우하단(작업표시줄)이라 '아래'로 띄우면 화면 밖으로 나간다.
+  // macOS는 메뉴바가 화면 상단이라 트레이 '아래'에 띄운다.
+  // Windows/Linux는 트레이가 보통 우하단(작업표시줄)이라 '아래'로 띄우면 화면 밖으로 나간다.
   // → 트레이 '위'에 띄우고, 어느 쪽이든 workArea 안으로 클램프.
   let y =
     process.platform === 'darwin'
@@ -230,9 +230,9 @@ function togglePopover() {
   if (popover.isVisible()) {
     popover.hide();
   } else {
-    // blur 로 방금 닫힌 직후의 트레이 클릭은 "닫기 의도" 였으므로 다시 열지 않음.
+    // blur로 방금 닫힌 직후의 트레이 클릭은 "닫기 의도"였으므로 다시 열지 않음.
     // 안 그러면 trayClick → blur → hide → click → show 순으로 처리되어
-    // 사용자가 닫으려고 누른 클릭이 도리어 popover 를 다시 띄움.
+    // 사용자가 닫으려고 누른 클릭이 도리어 popover를 다시 띄움.
     if (Date.now() - lastBlurHideAt < 250) return;
     positionPopover();
     popover.show();
@@ -244,8 +244,8 @@ function createTray() {
   tray = new Tray(trayIconImage());
   updateTray();
 
-  // macOS 에서 OS 가 빠른 두 클릭을 더블클릭으로 합쳐버려 click 이벤트가
-  // 한 번만 발사되는 경우가 있다. 이걸 끄면 두 클릭이 각각 click 으로 들어옴.
+  // macOS에서 OS가 빠른 두 클릭을 더블클릭으로 합쳐버려 click 이벤트가
+  // 한 번만 발사되는 경우가 있다. 이걸 끄면 두 클릭이 각각 click으로 들어옴.
   tray.setIgnoreDoubleClickEvents(true);
 
   tray.on('click', () => togglePopover());
@@ -279,7 +279,7 @@ function classifyStatus(result: ProbeResult): 'healthy' | 'warning' | 'critical'
   return 'healthy';
 }
 
-/** http/https URL 만 허용 — 임의 scheme(file: 등)·내부망 점검으로의 오남용 방지. */
+/** http/https URL만 허용 — 임의 scheme(file: 등)·내부망 점검으로의 오남용 방지. */
 function assertHttpUrl(url: string, label = 'url'): void {
   let u: URL;
   try {
@@ -314,7 +314,7 @@ function parseImport(json: string, forceType?: EndpointType): NewEndpoint[] {
   for (let i = 0; i < items.length; i++) {
     const ep = items[i] as Record<string, unknown> | null;
     if (!ep || typeof ep !== 'object') {
-      throw new Error(`endpoints[${i}] 가 객체가 아닙니다.`);
+      throw new Error(`endpoints[${i}]가 객체가 아닙니다.`);
     }
     const url = typeof ep.url === 'string' ? ep.url.trim() : '';
     if (!url) {
@@ -341,11 +341,11 @@ function parseImport(json: string, forceType?: EndpointType): NewEndpoint[] {
 
 app.whenReady().then(() => {
   // Windows: 알림(토스트)이 올바른 앱 신원으로 뜨고 작업표시줄에서 묶이도록 AUMID 설정.
-  // build.appId 와 동일하게 맞춘다. (macOS/Linux 에선 사실상 no-op)
+  // build.appId와 동일하게 맞춘다. (macOS/Linux에선 사실상 no-op)
   app.setAppUserModelId('com.local.mac-api-monitor');
 
   // 렌더러(popover/main)에 CSP 적용. 브라우저 점검 창은 persist:monitor 파티션이라 영향 없음.
-  // dev 는 Vite HMR(eval/ws) 때문에 느슨, 프로덕션(loadFile)은 엄격하게.
+  // dev는 Vite HMR(eval/ws) 때문에 느슨, 프로덕션(loadFile)은 엄격하게.
   const isDev = !!rendererURL();
   const csp = isDev
     ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: http://localhost:* http://127.0.0.1:*"
@@ -359,9 +359,9 @@ app.whenReady().then(() => {
     });
   });
 
-  // Windows/Linux 는 Electron 기본 메뉴(File/Edit/View/Window/Help)가 창 안에 메뉴바로 붙는다.
+  // Windows/Linux는 Electron 기본 메뉴(File/Edit/View/Window/Help)가 창 안에 메뉴바로 붙는다.
   // 트레이/popover 앱이라 불필요한 노이즈 → 숨긴다.
-  // macOS 는 시스템 메뉴바에 있고 ⌘Q·복사/붙여넣기 단축키를 제공하므로 기본 메뉴 유지.
+  // macOS는 시스템 메뉴바에 있고 ⌘Q·복사/붙여넣기 단축키를 제공하므로 기본 메뉴 유지.
   if (process.platform !== 'darwin') {
     Menu.setApplicationMenu(null);
   }
@@ -481,7 +481,7 @@ ipcMain.handle('settings:update', (_e, patch: SettingsPatch) => {
   const next = db.getSettings();
   scheduler.reconfigure(next);
   notifier.configure(next);
-  // 브라우저 점검을 끄면(비상정지) 숨은 창을 즉시 닫아 진행 중 navigate 까지 중단.
+  // 브라우저 점검을 끄면(비상정지) 숨은 창을 즉시 닫아 진행 중 navigate까지 중단.
   if (next.browser.checks_enabled === 0) browserRunner?.destroy();
 });
 
@@ -490,7 +490,7 @@ ipcMain.handle('probe:now', async (_e, endpointId: number) => {
 });
 
 // 브라우저 점검: 사람이 1회 로그인할 창을 띄운다 (세션은 persist 파티션에 저장).
-// 로그인 창이 로그인 페이지를 벗어나면(=로그인 성공) 자동 감지해 상태를 'ok' 로 broadcast.
+// 로그인 창이 로그인 페이지를 벗어나면(=로그인 성공) 자동 감지해 상태를 'ok'로 broadcast.
 ipcMain.handle('browser:openLogin', () => {
   const cfg = db.getSettings().browser;
   return browserRunner.openLoginWindow(cfg.base_url, cfg.login_pattern, () => {
@@ -499,7 +499,7 @@ ipcMain.handle('browser:openLogin', () => {
   });
 });
 
-// 브라우저 로그인 상태 조회 — main 이 추적 중인 값을 반환(프로빙 X). 실시간 갱신은 browser:session-changed 이벤트.
+// 브라우저 로그인 상태 조회 — main이 추적 중인 값을 반환(프로빙 X). 실시간 갱신은 browser:session-changed 이벤트.
 ipcMain.handle('browser:sessionStatus', () => ({
   state: browserSessionState,
   checkedAt: Date.now(),

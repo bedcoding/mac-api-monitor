@@ -3,7 +3,7 @@ import type { RawProbe } from './probeTypes';
 
 /**
  * fetch 기반 점검 (health / feature).
- * URL 에 HTTP 요청을 보내 상태·응답시간을 재고, 실패 시 단서(본문/에러)를 남긴다.
+ * URL에 HTTP 요청을 보내 상태·응답시간을 재고, 실패 시 단서(본문/에러)를 남긴다.
  * 측정 기록/알람은 하지 않는다 — 원시 결과(RawProbe)만 반환.
  */
 export async function fetchProbe(ep: Endpoint, cfg: TypeSettings): Promise<RawProbe> {
@@ -20,8 +20,8 @@ export async function fetchProbe(ep: Endpoint, cfg: TypeSettings): Promise<RawPr
     const res = await fetch(ep.url, { method: ep.method, signal: ac.signal });
     status = res.status;
     ok = res.ok;
-    // 200 OK 가 아닐 때만 본문 저장 (4xx/5xx 디버깅 단서).
-    // 본문은 앞 2KB 만, PII/토큰 등 저장 위험을 줄임.
+    // 200 OK가 아닐 때만 본문 저장 (4xx/5xx 디버깅 단서).
+    // 본문은 앞 2KB만, PII/토큰 등 저장 위험을 줄임.
     if (!ok) {
       try {
         body = (await res.text()).slice(0, 2048);
@@ -38,7 +38,7 @@ export async function fetchProbe(ep: Endpoint, cfg: TypeSettings): Promise<RawPr
     if (ac.signal.aborted) {
       body = `응답시간 초과 (${timeoutMs}ms)`;
     } else {
-      // undici 는 겉으로 'fetch failed' 만 던지고 진짜 원인(ENOTFOUND 등)은 cause 에 숨김
+      // undici는 겉으로 'fetch failed'만 던지고 진짜 원인(ENOTFOUND 등)은 cause에 숨김
       let msg = e instanceof Error ? e.message : String(e);
       if (e instanceof Error && e.cause) {
         const c = e.cause;

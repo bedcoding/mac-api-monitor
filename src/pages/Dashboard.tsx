@@ -36,7 +36,7 @@ HTML을 받고 JS·CSS를 내려받아 실행·렌더링까지 — 실제 사용
 
 '실제 동작 보기'를 켜면 점검용 브라우저 창이 떠서 화면을 실제로 여는 과정을 볼 수 있습니다.`;
 
-/** 조회 화면: 해당 type 의 endpoint 카드 + 차트 (그룹별 섹션) */
+/** 조회 화면: 해당 type의 endpoint 카드 + 차트 (그룹별 섹션) */
 export function MonitorList({
   refreshKey,
   filterType,
@@ -49,12 +49,12 @@ export function MonitorList({
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [measurements, setMeasurements] = useState<Record<number, Measurement[]>>({});
   const [settings, setSettings] = useState<Settings | null>(null);
-  // 첫 load() 완료 전에는 empty 화면을 띄우지 않는다 — "데이터 없음" 과 "아직 로딩 중" 을 구분.
+  // 첫 load() 완료 전에는 empty 화면을 띄우지 않는다 — "데이터 없음"과 "아직 로딩 중"을 구분.
   const [loaded, setLoaded] = useState(false);
   // 로딩이 SPINNER_DELAY_MS 넘게 걸릴 때만 스피너를 띄운다.
   // 0.3초 만에 끝나는 보통 로딩에서는 스피너가 아예 안 떠 깜빡임이 없다.
   const [showSpinner, setShowSpinner] = useState(false);
-  // 그래프에 띄울 최근 측정 개수 — 사용자가 조정, localStorage 에 기억
+  // 그래프에 띄울 최근 측정 개수 — 사용자가 조정, localStorage에 기억
   const [graphPoints, setGraphPoints] = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem(GRAPH_POINTS_KEY));
@@ -71,22 +71,22 @@ export function MonitorList({
   const loadSeq = useRef(0);
 
   async function load() {
-    // endpoints / settings / measurements 를 모두 모은 뒤 한 번에 커밋한다.
-    // 따로 setState 하면 "endpoints 만 있고 measurements 는 빈" 중간 렌더가 새어나가
-    // 카드가 잠깐 "측정 대기 중" 으로 보였다가 그래프가 뿅 채워지는 깜빡임이 생긴다.
-    // 토큰으로 더 최신 load 가 시작되면 옛 응답을 폐기 — 10초 폴링/탭전환 시 out-of-order 덮어쓰기 방지.
+    // endpoints / settings / measurements를 모두 모은 뒤 한 번에 커밋한다.
+    // 따로 setState 하면 "endpoints만 있고 measurements는 빈" 중간 렌더가 새어나가
+    // 카드가 잠깐 "측정 대기 중"으로 보였다가 그래프가 뿅 채워지는 깜빡임이 생긴다.
+    // 토큰으로 더 최신 load가 시작되면 옛 응답을 폐기 — 10초 폴링/탭전환 시 out-of-order 덮어쓰기 방지.
     const myToken = ++loadSeq.current;
     const eps = await window.api.listEndpoints();
     const nextSettings = await window.api.getSettings();
     const map: Record<number, Measurement[]> = {};
     await Promise.all(
       eps.map(async ep => {
-        // recentMeasurements 는 "개수" 기준 — 그래프용 최근 graphPoints 개 측정
+        // recentMeasurements는 "개수" 기준 — 그래프용 최근 graphPoints 개 측정
         map[ep.id] = await window.api.recentMeasurements(ep.id, graphPoints);
       }),
     );
-    if (myToken !== loadSeq.current) return; // 더 최신 load 가 진행 중 → 이 결과는 폐기
-    // React 18 자동 배칭: 같은 tick 의 setState 들이 한 렌더로 묶인다.
+    if (myToken !== loadSeq.current) return; // 더 최신 load가 진행 중 → 이 결과는 폐기
+    // React 18 자동 배칭: 같은 tick의 setState 들이 한 렌더로 묶인다.
     setEndpoints(eps);
     setSettings(nextSettings);
     setMeasurements(map);
@@ -97,8 +97,8 @@ export function MonitorList({
     load();
   }, [refreshKey, graphPoints]);
 
-  // 로딩이 SPINNER_DELAY_MS 를 넘길 때만 스피너를 켠다.
-  // 그 전에 load() 가 끝나면(loaded=true) 타이머가 취소되어 스피너가 아예 안 뜬다.
+  // 로딩이 SPINNER_DELAY_MS를 넘길 때만 스피너를 켠다.
+  // 그 전에 load()가 끝나면(loaded=true) 타이머가 취소되어 스피너가 아예 안 뜬다.
   useEffect(() => {
     if (loaded) {
       setShowSpinner(false);
@@ -116,7 +116,7 @@ export function MonitorList({
     }
   }, [graphPoints]);
 
-  // 브라우저 탭에서만: 점검 창 가시성을 main 과 동기화(탭 전환/재마운트, 사용자가 창 닫기 시에도 일치).
+  // 브라우저 탭에서만: 점검 창 가시성을 main과 동기화(탭 전환/재마운트, 사용자가 창 닫기 시에도 일치).
   useEffect(() => {
     if (filterType !== 'browser') return;
     let alive = true;
@@ -162,9 +162,9 @@ export function MonitorList({
   const shown = endpoints.filter(e => e.type === filterType);
   const groups = groupBy(shown);
 
-  // 첫 load() 가 끝나기 전에는 empty 화면을 띄우지 않는다.
-  // 그렇지 않으면 데이터가 있어도 잠깐 "endpoint가 없습니다" 가 보였다가 그래프가 뿅 나타난다.
-  // 스피너는 로딩이 SPINNER_DELAY_MS 를 넘길 때만 — 짧은 로딩에선 빈 영역만 잠깐 보인다.
+  // 첫 load()가 끝나기 전에는 empty 화면을 띄우지 않는다.
+  // 그렇지 않으면 데이터가 있어도 잠깐 "endpoint가 없습니다"가 보였다가 그래프가 뿅 나타난다.
+  // 스피너는 로딩이 SPINNER_DELAY_MS를 넘길 때만 — 짧은 로딩에선 빈 영역만 잠깐 보인다.
   if (!loaded) {
     return (
       <section
@@ -280,7 +280,7 @@ export function MonitorList({
   );
 }
 
-/** 추가 화면: 직접 추가 / JSON Import (해당 type 으로 고정) */
+/** 추가 화면: 직접 추가 / JSON Import (해당 type으로 고정) */
 export function AddPanel({ type, onDone }: { type: EndpointType; onDone: () => void }) {
   const [draft, setDraft] = useState({ method: 'GET', url: '', label: '', group: '' });
   const [importText, setImportText] = useState('');

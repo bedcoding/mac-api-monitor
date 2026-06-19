@@ -17,7 +17,7 @@ import type {
 } from '../src/shared/types';
 
 // 타입 단일 출처는 src/shared/types — 메인/프리로드/렌더러가 같은 정의를 공유하도록 여기서 재노출.
-// (electron 쪽은 종전처럼 './db' 에서 타입을 가져다 쓰면 된다)
+// (electron 쪽은 종전처럼 './db'에서 타입을 가져다 쓰면 된다)
 export type {
   EndpointType,
   Endpoint,
@@ -152,7 +152,7 @@ export class Database {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.migrate();
-    // 시작 시 1회 retention 정리 — scheduler 가 꺼져 있거나 짧은 세션만 반복해도 보관기간이 지켜지도록.
+    // 시작 시 1회 retention 정리 — scheduler가 꺼져 있거나 짧은 세션만 반복해도 보관기간이 지켜지도록.
     this.pruneAllByRetention();
   }
 
@@ -244,7 +244,7 @@ export class Database {
       // already exists
     }
     // 중복 endpoint(같은 method+url+type) 방지 — 재import 시 같은 화면이 두 번 등록되는 것 차단.
-    // 기존 DB 에 이미 중복이 있으면 인덱스 생성이 실패하므로 무시(그땐 UNIQUE 미적용).
+    // 기존 DB에 이미 중복이 있으면 인덱스 생성이 실패하므로 무시(그땐 UNIQUE 미적용).
     try {
       this.db.exec(
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_endpoints_unique ON endpoints(method, url, type)`,
@@ -312,7 +312,7 @@ export class Database {
       .run(m.endpoint_id, m.ts, m.duration_ms, m.status, m.ok, m.body);
   }
 
-  /** type 의 가장 최근 측정 시각. 재시작 시 측정 주기를 이어가는 용도. */
+  /** type의 가장 최근 측정 시각. 재시작 시 측정 주기를 이어가는 용도. */
   lastMeasurementTs(type: EndpointType): number | null {
     const row = this.db
       .prepare(
@@ -325,7 +325,7 @@ export class Database {
   }
 
   recentMeasurements(endpointId: number, limit: number): Measurement[] {
-    // 최근 limit 개를 ts ASC(과거→최신) 로 반환. 측정 주기와 무관하게 "개수" 로 끊어
+    // 최근 limit 개를 ts ASC(과거→최신)로 반환. 측정 주기와 무관하게 "개수"로 끊어
     // 타임라인 모달이 주기가 길든 짧든 일정 분량을 보여주게 한다.
     return this.db
       .prepare(
@@ -384,7 +384,7 @@ export class Database {
 
   /**
    * 임계값 초과 측정 이벤트 (알람 발동 여부와 무관).
-   * - ok=0 (실패) 이거나
+   * - ok=0 (실패)이거나
    * - duration_ms >= warning_ms (느림)
    */
   recentThresholdExceeded(
@@ -424,7 +424,7 @@ export class Database {
     perEndpoint = 60,
     sinceTs = 0,
   ): ThresholdEvent[] {
-    // sinceTs 로 스캔 범위를 시간으로 한정(ROW_NUMBER 가 type 전체를 풀스캔하는 비용 방지). 0 이면 전체.
+    // sinceTs로 스캔 범위를 시간으로 한정(ROW_NUMBER가 type 전체를 풀스캔하는 비용 방지). 0이면 전체.
     return this.db
       .prepare(
         `SELECT id, ts, duration_ms, status, ok, body,
@@ -484,7 +484,7 @@ export class Database {
     const map: Record<string, string> = {};
     for (const r of rows) map[r.key] = r.value;
 
-    // 구버전 키 → 두 type 의 fallback 으로 흡수 (전역 슬랙/알람이 type별로 이동했으므로)
+    // 구버전 키 → 두 type의 fallback으로 흡수 (전역 슬랙/알람이 type별로 이동했으므로)
     const legacy = {
       interval_ms: map.interval_ms,
       warning_ms: map.warning_ms,

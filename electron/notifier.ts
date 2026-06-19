@@ -28,13 +28,13 @@ export class Notifier {
   private settings: Settings;
   private consecutiveState = new Map<number, ConsecutiveState>();
   private slidingState = new Map<string, SlidingState>();
-  private cycleState = new Map<string, SlidingState>(); // cycle 모드 전용 (sliding 과 키 충돌 방지)
+  private cycleState = new Map<string, SlidingState>(); // cycle 모드 전용 (sliding과 키 충돌 방지)
   private persistedCooldown = new Map<string, number>(); // `${type}::${group}` → 마지막 알람 ts (재시작 복원)
   private firing = new Map<string, boolean>(); // 복구 알림용 — 현재 "알람 발사됨" 상태인 키 추적
 
   constructor(private db: Database) {
     this.settings = db.getSettings();
-    // 재시작해도 쿨다운이 유지되도록 DB 의 마지막 알람 시각을 복원
+    // 재시작해도 쿨다운이 유지되도록 DB의 마지막 알람 시각을 복원
     // (장애 중 재시작 시 방금 보낸 알람이 즉시 재발송되는 것 방지).
     for (const r of db.lastAlarmAtByGroup()) {
       this.persistedCooldown.set(`${r.type}::${r.group_name}`, r.ts);
@@ -56,7 +56,7 @@ export class Notifier {
     if (!cfg.alarms_enabled) return;
 
     if (cfg.alarm_mode === 'cycle') {
-      // cycle 모드는 사이클 끝에 observeCycle 로 일괄 판정. per-probe 는 무시.
+      // cycle 모드는 사이클 끝에 observeCycle로 일괄 판정. per-probe는 무시.
       return;
     }
     if (cfg.alarm_mode === 'sliding') {
@@ -68,7 +68,7 @@ export class Notifier {
 
   /**
    * 한 사이클(전체 endpoint 1회씩) 종료 시 호출.
-   * type+group 별로 "🔴심각 endpoint 비율" 이 임계치 이상이면 그룹 알람 1건, 심각 0건이면 복구 1건.
+   * type+group 별로 "🔴심각 endpoint 비율"이 임계치 이상이면 그룹 알람 1건, 심각 0건이면 복구 1건.
    */
   observeCycle(
     type: Endpoint['type'],
@@ -263,7 +263,7 @@ export class Notifier {
     }
   }
 
-  /** 장애가 해소됐을 때 1회 발송하는 복구 알림. level 은 critical 이 아니므로 'warning' 으로 기록하고 title 의 ✅ 로 구분. */
+  /** 장애가 해소됐을 때 1회 발송하는 복구 알림. level은 critical이 아니므로 'warning'으로 기록하고 title의 ✅로 구분. */
   private async fireRecovery(e: {
     type: Endpoint['type'];
     group_name: string;
@@ -295,7 +295,7 @@ export class Notifier {
     }
   }
 
-  /** 설정 화면의 "Slack 테스트" 버튼용. 해당 type 의 슬랙 설정으로 발송(타임아웃 포함). */
+  /** 설정 화면의 "Slack 테스트" 버튼용. 해당 type의 슬랙 설정으로 발송(타임아웃 포함). */
   async testSlack(type: Endpoint['type']): Promise<{ ok: boolean; message: string }> {
     const s = this.settings[type];
     const text = `:white_check_mark: API Monitor 테스트 메시지 — ${type} (${new Date().toLocaleString('ko-KR')})`;
@@ -381,7 +381,7 @@ export class Notifier {
             lastErr = `HTTP ${r.status}`;
             continue; // 일시 오류 → 재시도
           }
-          // non-JSON 응답(예: 429 HTML)에도 throw 하지 않도록 catch 로 방어.
+          // non-JSON 응답(예: 429 HTML)에도 throw 하지 않도록 catch로 방어.
           const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
           if (j.ok) return { status: 'sent', error: null };
           if (j.error === 'rate_limited') {

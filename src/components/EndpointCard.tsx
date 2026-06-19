@@ -188,7 +188,7 @@ function computeStatus(latest: Measurement | undefined, warning: number, critica
   return { color: '#4ade80', label: 'healthy' };
 }
 
-/** dot 에 마우스 올렸을 때 "왜 이 색인지" — 실패면 사유(body), 느림이면 임계 초과 안내. */
+/** dot에 마우스 올렸을 때 "왜 이 색인지" — 실패면 사유(body), 느림이면 임계 초과 안내. */
 function statusReason(latest: Measurement, warning: number, critical: number): string {
   if (!latest.ok) {
     return latest.body?.trim() || `실패 — ${latest.status ? `HTTP ${latest.status}` : '응답 없음'}`;
